@@ -27,7 +27,7 @@ struct CustomFieldsSettingsView: View {
                                         Text(scopeLabel(field)).font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Chip(text: field.type.title, color: Theme.Palette.accent)
+                                    Chip(text: field.type.title, color: Theme.Palette.brass)
                                 }
                             }
                             .buttonStyle(.plain)

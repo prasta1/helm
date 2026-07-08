@@ -4,8 +4,7 @@ import SwiftData
 import AppKit
 #endif
 
-/// Lists imported and manually created meeting notes, and hosts the Granola
-/// import flow.
+/// Lists imported and manually created meeting notes, styled for Helm.
 struct MeetingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.modelContext) private var modelContext
@@ -31,7 +30,11 @@ struct MeetingsView: View {
                 list
             }
         }
+        .background(Theme.Palette.canvas)
         .navigationTitle("Meetings")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             ToolbarItem {
                 Menu {
@@ -68,21 +71,44 @@ struct MeetingsView: View {
                 Button {
                     selection = meeting
                 } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(meeting.title).font(.body.weight(.medium)).foregroundStyle(.primary)
-                            Spacer()
-                            if meeting.source == .granola {
-                                Chip(text: "Granola", color: .purple)
+                    HStack(spacing: 14) {
+                        // Date column
+                        VStack(spacing: 2) {
+                            Text(meeting.date, format: .dateTime.month(.abbreviated))
+                                .font(.system(size: 10, weight: .bold))
+                                .kerning(0.5)
+                                .foregroundStyle(Theme.Palette.textMuted)
+                            Text(meeting.date, format: .dateTime.day())
+                                .font(.system(size: 18, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Theme.Palette.textPrimary)
+                        }
+                        .frame(width: 40)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(meeting.title)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Theme.Palette.textPrimary)
+                                    .lineLimit(1)
+                                Spacer()
+                                if meeting.source == .granola {
+                                    Chip(text: "Granola", color: .purple)
+                                } else if meeting.source == .ai {
+                                    Chip(text: "AI", systemImage: "sparkles", color: Theme.Palette.brass)
+                                }
+                            }
+                            Text(meeting.date, format: .dateTime.weekday().hour().minute())
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.Palette.textSecondary)
+                            if !meeting.summaryMarkdown.isEmpty {
+                                Text(meeting.summaryMarkdown)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.Palette.textMuted)
+                                    .lineLimit(2)
                             }
                         }
-                        Text(meeting.date, format: .dateTime.weekday().month().day().hour().minute())
-                            .font(.caption).foregroundStyle(.secondary)
-                        if !meeting.summaryMarkdown.isEmpty {
-                            Text(meeting.summaryMarkdown)
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                        }
                     }
+                    .padding(.vertical, 4)
                 }
                 .buttonStyle(.plain)
             }
@@ -91,9 +117,12 @@ struct MeetingsView: View {
                 try? modelContext.save()
             }
         }
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        .background(Theme.Palette.canvas)
     }
 
-    // MARK: Import
+    // MARK: Import (unchanged from original)
 
     private func importFromGranola() {
         #if os(macOS)
@@ -116,8 +145,6 @@ struct MeetingsView: View {
     }
 
     #if os(macOS)
-    /// Returns a usable security-scoped bookmark, prompting the user to grant
-    /// access to the Granola cache the first time.
     private func resolveOrPromptForGranolaAccess() throws -> Data {
         if let bookmark = settings.granolaBookmark {
             return bookmark

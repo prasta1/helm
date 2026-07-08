@@ -13,7 +13,7 @@ struct RastaWranglerApp: App {
             RootView()
                 .environment(settings)
                 .preferredColorScheme(settings.appearance.colorScheme)
-                .tint(Theme.Palette.accent)
+                .tint(Theme.Palette.brass)
         }
         .modelContainer(container)
         #if os(macOS)
