@@ -25,3 +25,7 @@ Package.resolved
 # Secrets — never commit API keys or OAuth client secrets
 Secrets.xcconfig
 *.env
+
+# Design exports from claude.ai/design (kept local; source of truth is the web project)
+Helm productivity app design/
+Helm productivity app design.zip
