@@ -1,23 +1,31 @@
 import SwiftUI
 import SwiftData
+#if os(iOS)
+import UIKit
+#endif
 
-/// Helm Tasks view — a unified ledger of todos and reminders from every source.
-/// Shows tasks grouped by due date period, with a sidebar of lists.
+/// Helm Tasks view — a unified ledger of todos from every source.
+/// Merges Helm's own tasks (SwiftData) with live Apple Reminders (EventKit),
+/// grouped by due-date period, with a sidebar of real lists.
 struct BridgeTasksView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
 
     @Query(sort: \Activity.date, order: .forward) private var activities: [Activity]
 
+    @State private var service = RemindersService()
+    @State private var reminders: [ReminderItem] = []
+    @State private var doneReminders: [ReminderItem] = []
+    @State private var reminderLists: [ReminderList] = []
+    @State private var remindersDenied = false
     @State private var selectedPeriod: TaskPeriod = .today
     @State private var newTaskText = ""
+    @State private var saveErrorMessage: String?
 
     var body: some View {
         HStack(spacing: 0) {
-            // Lists sidebar
             listsSidebar
-
-            // Main content
             mainContent
         }
         .background(Theme.Palette.canvas)
@@ -25,6 +33,40 @@ struct BridgeTasksView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task { await connectAndLoad() }
+        .onReceive(NotificationCenter.default.publisher(for: RemindersService.changeNotification)) { _ in
+            Task { await reload() }
+        }
+        .alert("Couldn't save", isPresented: saveErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveErrorMessage ?? "")
+        }
+    }
+
+    // MARK: Reminders loading
+
+    private func connectAndLoad() async {
+        if !service.hasFullAccess, !service.isDenied {
+            _ = try? await service.requestAccess()
+        }
+        remindersDenied = service.isDenied
+        await reload()
+    }
+
+    private func reload() async {
+        guard service.hasFullAccess else { return }
+        reminderLists = service.lists()
+        reminders = await service.incompleteReminders()
+        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .now
+        doneReminders = await service.completedReminders(since: weekAgo)
+    }
+
+    private var saveErrorBinding: Binding<Bool> {
+        Binding(
+            get: { saveErrorMessage != nil },
+            set: { if !$0 { saveErrorMessage = nil } }
+        )
     }
 
     // MARK: Lists sidebar
@@ -39,36 +81,36 @@ struct BridgeTasksView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 12)
 
-            // Helm lists (grouped by source tag)
-            VStack(spacing: 0) {
-                listSectionHeader("HELM")
-                ForEach(helmLists, id: \.name) { list in
-                    listRow(name: list.name, count: list.count, color: Theme.Palette.brassDim)
-                }
+            ScrollView {
+                VStack(spacing: 0) {
+                    listSectionHeader("HELM")
+                    ForEach(helmLists, id: \.name) { list in
+                        listRow(name: list.name, count: list.count, color: Theme.Palette.brassDim)
+                    }
 
-                Divider().padding(.vertical, 8)
+                    if !reminderLists.isEmpty {
+                        Divider().padding(.vertical, 8)
 
-                listSectionHeader("APPLE REMINDERS")
-                ForEach(appleLists, id: \.name) { list in
-                    listRow(name: list.name, count: list.count, color: Theme.Palette.sidebarDark)
-                }
-
-                Divider().padding(.vertical, 8)
-
-                listSectionHeader("GOOGLE TASKS")
-                ForEach(googleLists, id: \.name) { list in
-                    listRow(name: list.name, count: list.count, color: Theme.Palette.info)
+                        listSectionHeader("APPLE REMINDERS")
+                        ForEach(reminderLists) { list in
+                            listRow(
+                                name: list.title,
+                                count: reminders.filter { $0.listID == list.id }.count,
+                                color: Color(hex: list.colorHex)
+                            )
+                        }
+                    }
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
             // Footer
             HStack(spacing: 8) {
                 Circle()
-                    .fill(Theme.Palette.success)
+                    .fill(service.hasFullAccess ? Theme.Palette.success : Theme.Palette.textMuted)
                     .frame(width: 6, height: 6)
-                Text("All lines synced")
+                Text(service.hasFullAccess ? "Reminders connected" : "Reminders off")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.textMuted)
             }
@@ -99,6 +141,7 @@ struct BridgeTasksView: View {
             Text(name)
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.textPrimary)
+                .lineLimit(1)
             Spacer()
             Text("\(count)")
                 .font(.system(size: 10.5, design: .monospaced))
@@ -127,6 +170,12 @@ struct BridgeTasksView: View {
             .padding(.top, 36)
             .padding(.bottom, 18)
 
+            if remindersDenied {
+                permissionCard
+                    .padding(.horizontal, 44)
+                    .padding(.bottom, 16)
+            }
+
             // Smart input
             smartInputBar
                 .padding(.horizontal, 44)
@@ -142,14 +191,14 @@ struct BridgeTasksView: View {
                 VStack(spacing: 20) {
                     switch selectedPeriod {
                     case .today:
-                        taskGroup("DUE TODAY", tasks: tasksDueToday, showTime: true)
-                        taskGroup("TOMORROW", tasks: tasksDueTomorrow, showTime: false)
-                        taskGroup("LATER THIS WEEK", tasks: tasksLaterThisWeek, showTime: false)
+                        taskGroup("DUE TODAY", tasks: tasksDueToday, style: .time)
+                        taskGroup("TOMORROW — \(dayLabel(offset: 1))", tasks: tasks(inDayOffsets: 1...1), style: .time)
+                        taskGroup("LATER THIS WEEK", tasks: tasks(inDayOffsets: 2...6), style: .date)
                     case .upcoming:
-                        taskGroup("THIS WEEK", tasks: tasksUpcoming, showTime: true)
-                        taskGroup("NEXT WEEK", tasks: tasksNextWeek, showTime: false)
+                        taskGroup("THIS WEEK", tasks: tasks(inDayOffsets: 0...6), style: .date)
+                        taskGroup("NEXT WEEK", tasks: tasks(inDayOffsets: 7...13), style: .date)
                     case .anytime:
-                        taskGroup("NO DUE DATE", tasks: tasksAnytime, showTime: false)
+                        taskGroup("NO DUE DATE", tasks: tasksAnytime, style: .none)
                     case .logbook:
                         completedTaskGroup
                     }
@@ -160,15 +209,84 @@ struct BridgeTasksView: View {
         }
     }
 
+    // MARK: Permission explainer
+
+    private var permissionCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checklist")
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.Palette.brassDim)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Apple Reminders is switched off")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text("Helm can show your reminders alongside its own tasks once access is granted.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            Spacer()
+            if let url = privacySettingsURL {
+                Button("Open Settings") { openURL(url) }
+                    .font(.system(size: 12, weight: .semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.Palette.brassDim)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Theme.Palette.focusBg, in: RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(Theme.Palette.focusBorder, lineWidth: 1)
+        )
+    }
+
+    private var privacySettingsURL: URL? {
+        #if os(macOS)
+        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders")
+        #else
+        URL(string: UIApplication.openSettingsURLString)
+        #endif
+    }
+
+    // MARK: Smart input
+
     private var smartInputBar: some View {
         HStack(spacing: 12) {
-            Text("+")
-                .font(.system(size: 15, weight: .bold))
+            // Destination picker: Helm task or an Apple Reminders list.
+            Menu {
+                Button {
+                    settings.quickAddReminderListID = nil
+                } label: {
+                    destinationMenuLabel("Helm task", isSelected: settings.quickAddReminderListID == nil)
+                }
+                ForEach(reminderLists.filter(\.allowsModifications)) { list in
+                    Button {
+                        settings.quickAddReminderListID = list.id
+                    } label: {
+                        destinationMenuLabel(
+                            "Reminders · \(list.title)",
+                            isSelected: settings.quickAddReminderListID == list.id
+                        )
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text("+")
+                        .font(.system(size: 15, weight: .bold))
+                    Text(quickAddDestinationLabel)
+                        .font(.system(size: 10, weight: .semibold))
+                }
                 .foregroundStyle(Theme.Palette.brassDim)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .fixedSize()
 
-            TextField("Jot a task — try “follow up Dana fri 9am #consulting”", text: $newTaskText)
+            TextField("Jot a task — press ⏎ to add", text: $newTaskText)
                 .font(.system(size: 13))
                 .textFieldStyle(.plain)
+                .onSubmit(addQuickTask)
 
             Text("\u{23CE}")
                 .font(.system(size: 10, design: .monospaced))
@@ -192,6 +310,43 @@ struct BridgeTasksView: View {
         )
         .shadow(color: Theme.Palette.navy.opacity(0.06), radius: 3, x: 0, y: 1)
     }
+
+    @ViewBuilder
+    private func destinationMenuLabel(_ title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
+    }
+
+    private var quickAddDestinationLabel: String {
+        guard let listID = settings.quickAddReminderListID,
+              let list = reminderLists.first(where: { $0.id == listID }) else {
+            return "HELM"
+        }
+        return list.title.uppercased()
+    }
+
+    private func addQuickTask() {
+        let title = newTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+
+        if let listID = settings.quickAddReminderListID, service.hasFullAccess {
+            do {
+                try service.createReminder(title: title, dueDate: nil, listID: listID)
+            } catch {
+                saveErrorMessage = error.localizedDescription
+                return
+            }
+            Task { await reload() }
+        } else {
+            modelContext.insert(Activity(kind: .task, title: title, date: .now, source: .manual))
+        }
+        newTaskText = ""
+    }
+
+    // MARK: Period tabs
 
     private var periodTabs: some View {
         HStack(spacing: 24) {
@@ -224,7 +379,13 @@ struct BridgeTasksView: View {
         }
     }
 
-    private func taskGroup(_ title: String, tasks: [TaskItem], showTime: Bool) -> some View {
+    // MARK: Task groups
+
+    private enum DueStyle {
+        case time, date, none
+    }
+
+    private func taskGroup(_ title: String, tasks: [TaskItem], style: DueStyle) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 10, weight: .bold))
@@ -239,7 +400,7 @@ struct BridgeTasksView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(tasks.enumerated()), id: \.offset) { index, task in
-                        taskRow(task: task, showTime: showTime, isLast: index == tasks.count - 1)
+                        taskRow(task: task, isLast: index == tasks.count - 1)
                     }
                 }
                 .background(
@@ -255,28 +416,34 @@ struct BridgeTasksView: View {
         }
     }
 
-    private func taskRow(task: TaskItem, showTime: Bool, isLast: Bool) -> some View {
+    private func taskRow(task: TaskItem, isLast: Bool) -> some View {
         HStack(spacing: 12) {
-            // Checkbox
-            if task.isCompleted {
-                Circle()
-                    .fill(Theme.Palette.brassDim)
-                    .frame(width: 17, height: 17)
-                    .overlay(
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                    )
-            } else {
-                Circle()
-                    .strokeBorder(task.isUrgent ? Theme.Palette.danger : Theme.Palette.textMuted, lineWidth: 1.5)
-                    .frame(width: 17, height: 17)
+            // Checkbox — writes back to the owning source.
+            Button {
+                toggle(task)
+            } label: {
+                if task.isCompleted {
+                    Circle()
+                        .fill(Theme.Palette.brassDim)
+                        .frame(width: 17, height: 17)
+                        .overlay(
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                        )
+                } else {
+                    Circle()
+                        .strokeBorder(task.isUrgent ? Theme.Palette.danger : Theme.Palette.textMuted, lineWidth: 1.5)
+                        .frame(width: 17, height: 17)
+                }
             }
+            .buttonStyle(.plain)
 
             Text(task.title)
                 .font(.system(size: 13, weight: task.isUrgent ? .semibold : .regular))
                 .foregroundStyle(task.isCompleted ? Theme.Palette.textMuted : Theme.Palette.textPrimary)
                 .strikethrough(task.isCompleted)
+                .lineLimit(1)
 
             if let tag = task.tag {
                 Text(tag)
@@ -293,7 +460,7 @@ struct BridgeTasksView: View {
                 SourceBadge(text: source)
             }
 
-            if showTime, let due = task.dueText {
+            if let due = task.dueText {
                 Text(due)
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(task.isUrgent ? Theme.Palette.danger : Theme.Palette.textSecondary)
@@ -302,51 +469,45 @@ struct BridgeTasksView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 11)
+        .opacity(task.isCompleted ? 0.45 : 1)
         .overlay(
             !isLast ? Divider().padding(.leading, 47) : nil,
             alignment: .bottom
         )
     }
 
+    private func toggle(_ task: TaskItem) {
+        if let activityID = task.activityID {
+            if let activity = activities.first(where: { $0.id == activityID }) {
+                activity.isCompleted.toggle()
+            }
+        } else if let reminderID = task.reminderID {
+            do {
+                try service.setCompleted(!task.isCompleted, reminderID: reminderID)
+            } catch {
+                saveErrorMessage = error.localizedDescription
+                return
+            }
+            Task { await reload() }
+        }
+    }
+
     private var completedTaskGroup: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("LOGBOOK")
+            Text("LOGBOOK — LAST 7 DAYS")
                 .font(.system(size: 10, weight: .bold))
                 .kerning(1.6)
                 .foregroundStyle(Theme.Palette.textMuted)
 
-            let completed = activities.filter { $0.isCompleted }
+            let completed = logbookItems
             if completed.isEmpty {
                 Text("No completed tasks yet.")
                     .font(.system(size: 12.5))
                     .foregroundStyle(Theme.Palette.textMuted)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(Array(completed.prefix(10).enumerated()), id: \.offset) { index, activity in
-                        HStack(spacing: 12) {
-                            Circle()
-                                .fill(Theme.Palette.brassDim)
-                                .frame(width: 17, height: 17)
-                                .overlay(
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundStyle(.white)
-                                )
-                            Text(activity.title.isEmpty ? activity.body : activity.title)
-                                .font(.system(size: 12))
-                                .foregroundStyle(Theme.Palette.textMuted)
-                                .strikethrough()
-                            Spacer()
-                            Text(activity.date, format: .dateTime.month().day())
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(Theme.Palette.textMuted)
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
-                        .overlay(
-                            index < min(completed.count, 10) - 1 ? Divider().padding(.leading, 47) : nil,
-                            alignment: .bottom
-                        )
+                    ForEach(Array(completed.enumerated()), id: \.offset) { index, task in
+                        taskRow(task: task, isLast: index == completed.count - 1)
                     }
                 }
                 .background(
@@ -362,7 +523,131 @@ struct BridgeTasksView: View {
         }
     }
 
-    // MARK: Data helpers
+    // MARK: - Merged ledger
+
+    /// Open items due today or overdue, plus items completed today (struck through, on top).
+    private var tasksDueToday: [TaskItem] {
+        let cal = Calendar.current
+        let todayEnd = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now))!
+
+        let completedToday = doneReminders
+            .filter { $0.completionDate.map(cal.isDateInToday) ?? false }
+            .map { makeItem($0, style: .time) }
+        + activities
+            .filter { $0.kind == .task && $0.isCompleted && cal.isDateInToday($0.date) }
+            .map { makeItem($0, style: .time) }
+
+        let open = openHelmTasks
+            .filter { $0.date < todayEnd }
+            .map { makeItem($0, style: .time) }
+        + openReminders
+            .filter { $0.dueDate.map { $0 < todayEnd } ?? false }
+            .map { makeItem($0, style: .time) }
+
+        return completedToday + open.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+    }
+
+    /// Open items due within the given day offsets from today (1...1 = tomorrow).
+    private func tasks(inDayOffsets offsets: ClosedRange<Int>) -> [TaskItem] {
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: .now)
+        let style: DueStyle = offsets.upperBound <= 1 ? .time : .date
+
+        func offset(of date: Date) -> Int {
+            cal.dateComponents([.day], from: todayStart, to: cal.startOfDay(for: date)).day ?? -999
+        }
+
+        let items = openHelmTasks
+            .filter { offsets.contains(offset(of: $0.date)) }
+            .map { makeItem($0, style: style) }
+        + openReminders
+            .filter { $0.dueDate.map { offsets.contains(offset(of: $0)) } ?? false }
+            .map { makeItem($0, style: style) }
+
+        return items.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+    }
+
+    /// Reminders with no due date. (Helm tasks always carry a date.)
+    private var tasksAnytime: [TaskItem] {
+        openReminders
+            .filter { $0.dueDate == nil }
+            .map { makeItem($0, style: .none) }
+    }
+
+    private var logbookItems: [TaskItem] {
+        let cal = Calendar.current
+        let weekAgo = cal.date(byAdding: .day, value: -7, to: .now) ?? .now
+        let items = doneReminders.map { makeItem($0, style: .date) }
+        + activities
+            .filter { $0.kind == .task && $0.isCompleted && $0.date >= weekAgo }
+            .map { makeItem($0, style: .date) }
+        return items.sorted { ($0.dueDate ?? .distantPast) > ($1.dueDate ?? .distantPast) }
+    }
+
+    private var openHelmTasks: [Activity] {
+        activities.filter { $0.kind == .task && !$0.isCompleted }
+    }
+
+    private var openReminders: [ReminderItem] {
+        reminders.filter { !$0.isCompleted }
+    }
+
+    // MARK: Item mapping
+
+    private func makeItem(_ activity: Activity, style: DueStyle) -> TaskItem {
+        TaskItem(
+            title: activity.title.isEmpty ? activity.body : activity.title,
+            details: activity.body,
+            isCompleted: activity.isCompleted,
+            isUrgent: !activity.isCompleted && activity.date < .now,
+            hasProgress: false,
+            progress: 0,
+            sourceText: sourceLabel(for: activity),
+            dueText: dueText(for: activity.date, hasTime: true, style: style),
+            formattedDue: Formatters.time.string(from: activity.date),
+            activityID: activity.id,
+            dueDate: activity.date
+        )
+    }
+
+    private func makeItem(_ reminder: ReminderItem, style: DueStyle) -> TaskItem {
+        TaskItem(
+            title: reminder.title,
+            details: reminder.notes,
+            isCompleted: reminder.isCompleted,
+            isUrgent: !reminder.isCompleted && reminder.hasDueTime && (reminder.dueDate.map { $0 < .now } ?? false),
+            hasProgress: false,
+            progress: 0,
+            sourceText: "REMINDERS · \(reminder.listName.uppercased())",
+            dueText: reminder.dueDate.flatMap { dueText(for: $0, hasTime: reminder.hasDueTime, style: style) },
+            formattedDue: reminder.dueDate.map { Formatters.time.string(from: $0) } ?? "",
+            reminderID: reminder.id,
+            dueDate: reminder.dueDate ?? reminder.completionDate
+        )
+    }
+
+    private func dueText(for date: Date, hasTime: Bool, style: DueStyle) -> String? {
+        switch style {
+        case .none:
+            return nil
+        case .time:
+            return hasTime ? Formatters.time.string(from: date) : "all day"
+        case .date:
+            return Formatters.shortDay.string(from: date).uppercased()
+        }
+    }
+
+    private func sourceLabel(for activity: Activity) -> String? {
+        switch activity.source {
+        case .googleCalendar: return "GOOGLE"
+        case .deviceCalendar: return "APPLE"
+        case .ai: return "HELM"
+        case .granola: return "GRANOLA"
+        case .manual: return nil
+        }
+    }
+
+    // MARK: Formatting helpers
 
     private var formattedDate: String {
         let df = DateFormatter()
@@ -370,100 +655,15 @@ struct BridgeTasksView: View {
         return df.string(from: .now).uppercased()
     }
 
-    private var tasksDueToday: [TaskItem] {
-        taskItems(for: .today, upcomingDays: 0)
-    }
-
-    private var tasksDueTomorrow: [TaskItem] {
-        taskItems(for: .upcoming, upcomingDays: 1)
-    }
-
-    private var tasksLaterThisWeek: [TaskItem] {
-        taskItems(for: .upcoming, upcomingDays: 2...6)
-    }
-
-    private var tasksUpcoming: [TaskItem] {
-        taskItems(for: .upcoming, upcomingDays: 0...6)
-    }
-
-    private var tasksNextWeek: [TaskItem] {
-        taskItems(for: .upcoming, upcomingDays: 7...13)
-    }
-
-    private var tasksAnytime: [TaskItem] {
-        activities
-            .filter { $0.kind == .task && !$0.isCompleted }
-            .map { makeTaskItem($0) }
-    }
-
-    private func taskItems(for period: TaskPeriod, upcomingDays: ClosedRange<Int>) -> [TaskItem] {
-        let cal = Calendar.current
-        let todayStart = cal.startOfDay(for: .now)
-        return activities
-            .filter { activity in
-                guard activity.kind == .task, !activity.isCompleted else { return false }
-                let daysFromToday = cal.dateComponents([.day], from: todayStart, to: activity.date).day ?? -1
-                return upcomingDays.contains(daysFromToday)
-            }
-            .map { makeTaskItem($0) }
-    }
-
-    private func taskItems(for period: TaskPeriod, upcomingDays: Int) -> [TaskItem] {
-        let cal = Calendar.current
-        let todayStart = cal.startOfDay(for: .now)
-        return activities
-            .filter { activity in
-                guard activity.kind == .task, !activity.isCompleted else { return false }
-                let daysFromToday = cal.dateComponents([.day], from: todayStart, to: activity.date).day ?? -1
-                return daysFromToday == upcomingDays
-            }
-            .map { makeTaskItem($0) }
-    }
-
-    private func makeTaskItem(_ activity: Activity) -> TaskItem {
-        let sourceMap: [ActivitySource: String] = [
-            .googleCalendar: "GOOGLE",
-            .deviceCalendar: "APPLE",
-            .ai: "HELM",
-            .granola: "GRANOLA",
-        ]
-        return TaskItem(
-            title: activity.title.isEmpty ? activity.body : activity.title,
-            details: activity.body,
-            isCompleted: activity.isCompleted,
-            isUrgent: !activity.isCompleted && activity.date < .now,
-            hasProgress: false,
-            progress: 0,
-            sourceText: sourceMap[activity.source],
-            dueText: Formatters.time.string(from: activity.date),
-            formattedDue: Formatters.time.string(from: activity.date),
-            tag: nil
-        )
+    private func dayLabel(offset: Int) -> String {
+        let date = Calendar.current.date(byAdding: .day, value: offset, to: .now) ?? .now
+        return Formatters.shortDay.string(from: date).uppercased()
     }
 
     private var helmLists: [(name: String, count: Int)] {
-        let allTasks = activities.filter { $0.kind == .task }
-        return [
-            ("Consulting", allTasks.filter { $0.body.localizedCaseInsensitiveContains("consult") }.count),
-            ("Q3 planning", allTasks.filter { $0.body.localizedCaseInsensitiveContains("q3") || $0.title.localizedCaseInsensitiveContains("q3") }.count),
-            ("House hunt", allTasks.filter { $0.body.localizedCaseInsensitiveContains("house") || $0.title.localizedCaseInsensitiveContains("house") }.count),
-        ]
-    }
-
-    private var appleLists: [(name: String, count: Int)] {
-        let appleTasks = activities.filter { $0.source == .deviceCalendar && $0.kind == .task }
-        return [
-            ("Errands", appleTasks.filter { $0.body.localizedCaseInsensitiveContains("errand") }.count),
-            ("Home", appleTasks.filter { $0.body.localizedCaseInsensitiveContains("home") }.count),
-        ]
-    }
-
-    private var googleLists: [(name: String, count: Int)] {
-        let googleTasks = activities.filter { $0.source == .googleCalendar && $0.kind == .task }
-        return [
-            ("Work", googleTasks.filter { $0.body.localizedCaseInsensitiveContains("work") }.count + 1),
-            ("Personal", googleTasks.filter { $0.body.localizedCaseInsensitiveContains("personal") }.count),
-        ]
+        let open = openHelmTasks
+        guard !open.isEmpty else { return [("Tasks", 0)] }
+        return [("Tasks", open.count)]
     }
 }
 
@@ -486,6 +686,12 @@ enum Formatters {
     static let time: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
+        return f
+    }()
+
+    static let shortDay: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE MMM d"
         return f
     }()
 }

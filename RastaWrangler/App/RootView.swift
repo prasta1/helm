@@ -24,7 +24,14 @@ struct RootView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingNewPipeline = false
 
-    private let syncTime = "10:21 AM"
+    // Used only to report connection status in the footer; the feature views
+    // own their own EventKit access and data. `appleConnected` is @State (not
+    // computed from authorizationStatus at render time) so the footer updates
+    // once the access request resolves.
+    @State private var calendarService = EventKitCalendarService()
+    @State private var remindersService = RemindersService()
+    @State private var appleConnected = false
+    @State private var lastRefresh = Date()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -37,6 +44,11 @@ struct RootView: View {
             if selection == nil {
                 selection = .bridge
             }
+            // requestAccess() returns immediately when already determined, so
+            // this settles the footer state without double-prompting.
+            let calendarGranted = (try? await calendarService.requestAccess()) ?? false
+            let remindersGranted = (try? await remindersService.requestAccess()) ?? false
+            appleConnected = calendarGranted || remindersGranted
         }
         .sheet(isPresented: $showingNewPipeline) {
             PipelineEditorView(pipeline: nil)
@@ -108,27 +120,46 @@ struct RootView: View {
         .background(Theme.Palette.navy)
         .foregroundStyle(Theme.Palette.sidebarText)
         .safeAreaInset(edge: .bottom) {
-            // Sync status footer
+            // Sync status footer — reflects which sources are actually connected.
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(Theme.Palette.success)
+                        .fill(connectedSources.isEmpty ? Theme.Palette.sidebarDark : Theme.Palette.success)
                         .frame(width: 6, height: 6)
-                    Text("All lines synced")
+                    Text(connectedSources.isEmpty ? "No sources connected" : "All lines synced")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.Palette.sidebarMuted)
+                    Spacer()
                 }
-                Text("Google \u{00B7} Apple \u{00B7} \(syncTime)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.Palette.sidebarDark)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 14)
+                if !connectedSources.isEmpty {
+                    Text("\(connectedSources.joined(separator: " \u{00B7} ")) \u{00B7} \(lastRefresh, format: .dateTime.hour().minute())")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.Palette.sidebarDark)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 14)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(Theme.Palette.navy)
             .overlay(Divider().opacity(0.15), alignment: .top)
+            .onReceive(NotificationCenter.default.publisher(for: EventKitCalendarService.changeNotification)) { _ in
+                appleConnected = calendarService.hasFullAccess || remindersService.hasFullAccess
+                lastRefresh = Date()
+            }
         }
+    }
+
+    /// Human-readable list of connected data sources for the footer.
+    private var connectedSources: [String] {
+        var sources: [String] = []
+        if appleConnected {
+            sources.append("Apple")
+        }
+        if !settings.googleClientID.isEmpty {
+            sources.append("Google")
+        }
+        return sources
     }
 
     // MARK: Sidebar label builders

@@ -1,12 +1,13 @@
 import SwiftUI
 import SwiftData
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - Router
 
 /// Routes to the active calendar source, wrapped in Helm design.
 struct CalendarView: View {
-    @Environment(AppSettings.self) private var settings
-
     var body: some View {
         HelmWeekCalendarView()
             .navigationTitle("Calendar")
@@ -15,20 +16,36 @@ struct CalendarView: View {
 
 // MARK: - Helm Week Calendar
 
-/// A week-view calendar matching the Helm design — Google + Apple events woven
-/// into one time grid with color-coded events and a current-time indicator.
+/// A week-view calendar matching the Helm design — real events from the active
+/// source (Apple via EventKit, or Google) laid out on one time grid with
+/// calendar colors and a current-time indicator.
 private struct HelmWeekCalendarView: View {
     @Environment(AppSettings.self) private var settings
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
 
     @State private var currentWeekStart: Date = Calendar.current.date(
         from: Calendar.current.dateComponents([.yearForWeekOfYear, .weekOfYear], from: .now)
     ) ?? .now
     @State private var viewMode: CalendarViewMode = .week
     @State private var events: [CalendarEvent] = []
+    @State private var deviceCalendars: [DeviceCalendar] = []
+    @State private var deviceDenied = false
+    @State private var loadErrorMessage: String?
+    @State private var showingNewEvent = false
+
+    @State private var deviceService = EventKitCalendarService()
+    @StateObject private var googleAuth: GoogleAuth
+    @State private var googleService: GoogleCalendarService?
 
     private let calendar = Calendar.current
     private let hourHeight: CGFloat = 52
+    private let timeColumnWidth: CGFloat = 56
+
+    init() {
+        // RootView keys CalendarView with `.id(...)` so this re-inits when the
+        // client ID or calendar source changes.
+        _googleAuth = StateObject(wrappedValue: GoogleAuth(clientID: AppSettings().googleClientID))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,6 +54,13 @@ private struct HelmWeekCalendarView: View {
                 .padding(.horizontal, 36)
                 .padding(.top, 30)
                 .padding(.bottom, 18)
+
+            // Source status banner (permission / sign-in), when needed
+            if let model = bannerModel {
+                statusBanner(model)
+                    .padding(.horizontal, 36)
+                    .padding(.bottom, 14)
+            }
 
             // Week grid
             weekGrid
@@ -51,6 +75,135 @@ private struct HelmWeekCalendarView: View {
         .background(Theme.Palette.canvas)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .task(id: reloadKey) { await loadEvents() }
+        .onReceive(NotificationCenter.default.publisher(for: EventKitCalendarService.changeNotification)) { _ in
+            Task { await loadEvents() }
+        }
+        .sheet(isPresented: $showingNewEvent) {
+            NewEventSheet(
+                calendars: deviceCalendars.filter(\.allowsModifications),
+                service: deviceService
+            )
+        }
+    }
+
+    /// Changing any of these re-runs the `.task` that loads events.
+    private var reloadKey: String {
+        let calendarsKey = settings.enabledCalendarIDs.map { $0.sorted().joined(separator: ",") } ?? "all"
+        return "\(currentWeekStart.timeIntervalSince1970)|\(settings.calendarSource.rawValue)|\(calendarsKey)|\(googleAuth.isSignedIn)"
+    }
+
+    // MARK: Data loading
+
+    private func loadEvents() async {
+        loadErrorMessage = nil
+        let weekEnd = calendar.date(byAdding: .day, value: 7, to: currentWeekStart) ?? currentWeekStart
+
+        switch settings.calendarSource {
+        case .device:
+            if !deviceService.hasFullAccess, !deviceService.isDenied {
+                _ = try? await deviceService.requestAccess()
+            }
+            deviceDenied = deviceService.isDenied
+            guard deviceService.hasFullAccess else {
+                events = []
+                return
+            }
+            deviceCalendars = deviceService.calendars()
+            events = deviceService.events(
+                from: currentWeekStart, to: weekEnd,
+                calendarIDs: settings.enabledCalendarIDs
+            )
+
+        case .google:
+            guard !settings.googleClientID.isEmpty, googleAuth.isSignedIn else {
+                events = []
+                return
+            }
+            let service = googleService ?? GoogleCalendarService(auth: googleAuth)
+            googleService = service
+            do {
+                events = try await service.events(from: currentWeekStart, to: weekEnd, maxResults: 250)
+            } catch {
+                events = []
+                loadErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: Source status banner
+
+    private struct BannerModel {
+        let title: String
+        let message: String
+        var actionTitle: String?
+        var action: (() -> Void)?
+    }
+
+    private var bannerModel: BannerModel? {
+        switch settings.calendarSource {
+        case .device where deviceDenied:
+            return BannerModel(
+                title: "Calendar access is switched off",
+                message: "Helm can show your Apple calendars once access is granted.",
+                actionTitle: "Open Settings",
+                action: { if let url = privacySettingsURL { openURL(url) } }
+            )
+        case .google where settings.googleClientID.isEmpty:
+            return BannerModel(
+                title: "Google Calendar isn't configured",
+                message: "Add your Google OAuth Client ID in Settings, or switch the source to This Device."
+            )
+        case .google where !googleAuth.isSignedIn:
+            return BannerModel(
+                title: "Sign in to Google",
+                message: "Grant read access to your calendars to see your week.",
+                actionTitle: "Sign In",
+                action: { Task { try? await googleAuth.signIn() } }
+            )
+        case _ where loadErrorMessage != nil:
+            return BannerModel(title: "Couldn't load events", message: loadErrorMessage ?? "")
+        default:
+            return nil
+        }
+    }
+
+    private func statusBanner(_ model: BannerModel) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.Palette.brassDim)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text(model.message)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            Spacer()
+            if let actionTitle = model.actionTitle, let action = model.action {
+                Button(actionTitle, action: action)
+                    .font(.system(size: 12, weight: .semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.Palette.brassDim)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Theme.Palette.focusBg, in: RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(Theme.Palette.focusBorder, lineWidth: 1)
+        )
+    }
+
+    private var privacySettingsURL: URL? {
+        #if os(macOS)
+        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")
+        #else
+        URL(string: UIApplication.openSettingsURLString)
         #endif
     }
 
@@ -70,6 +223,11 @@ private struct HelmWeekCalendarView: View {
             }
 
             Spacer()
+
+            // Calendar filter (device source only)
+            if settings.calendarSource == .device, !deviceCalendars.isEmpty {
+                calendarFilterMenu
+            }
 
             // Day nav
             HStack(spacing: 0) {
@@ -129,7 +287,74 @@ private struct HelmWeekCalendarView: View {
             }
             .padding(2)
             .background(Theme.Palette.tagBg, in: RoundedRectangle(cornerRadius: 8))
+
+            // New event (device source only — Google is read-only)
+            if settings.calendarSource == .device, deviceService.hasFullAccess {
+                Button {
+                    showingNewEvent = true
+                } label: {
+                    Text("+ New event")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.navy)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 6)
+                        .background(Theme.Palette.brass, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+            }
         }
+    }
+
+    /// "MY CALENDARS" visibility toggles, matching the design's sidebar list.
+    private var calendarFilterMenu: some View {
+        Menu {
+            ForEach(deviceCalendars) { deviceCalendar in
+                Button {
+                    toggleCalendar(deviceCalendar.id)
+                } label: {
+                    if isCalendarEnabled(deviceCalendar.id) {
+                        Label("\(deviceCalendar.title) — \(deviceCalendar.sourceName)", systemImage: "checkmark")
+                    } else {
+                        Text("\(deviceCalendar.title) — \(deviceCalendar.sourceName)")
+                    }
+                }
+            }
+            Divider()
+            Button("Show all") { settings.enabledCalendarIDs = nil }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Calendars")
+                    .font(.system(size: 12))
+            }
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Theme.Palette.border, lineWidth: 1)
+            )
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+    }
+
+    private func isCalendarEnabled(_ id: String) -> Bool {
+        settings.enabledCalendarIDs?.contains(id) ?? true
+    }
+
+    private func toggleCalendar(_ id: String) {
+        var enabled = settings.enabledCalendarIDs ?? Set(deviceCalendars.map(\.id))
+        if enabled.contains(id) {
+            enabled.remove(id)
+        } else {
+            enabled.insert(id)
+        }
+        // Back to nil ("all") when everything is re-enabled.
+        settings.enabledCalendarIDs = enabled.count == deviceCalendars.count ? nil : enabled
     }
 
     // MARK: Week Grid
@@ -141,7 +366,7 @@ private struct HelmWeekCalendarView: View {
                 // Time column spacer
                 Rectangle()
                     .fill(Color.clear)
-                    .frame(width: 56)
+                    .frame(width: timeColumnWidth)
 
                 ForEach(weekDays, id: \.self) { day in
                     dayHeader(day)
@@ -157,27 +382,28 @@ private struct HelmWeekCalendarView: View {
 
             // Time grid
             ScrollView {
-                ZStack(alignment: .topLeading) {
-                    // Hour rows
-                    VStack(spacing: 0) {
-                        ForEach(workingHours, id: \.self) { hour in
-                            hourRow(hour)
+                GeometryReader { geo in
+                    ZStack(alignment: .topLeading) {
+                        // Hour rows
+                        VStack(spacing: 0) {
+                            ForEach(workingHours, id: \.self) { hour in
+                                hourRow(hour)
+                            }
                         }
-                    }
 
-                    // Events positioned absolutely
-                    ForEach(placedEvents, id: \.id) { placed in
-                        // columnOffset already includes the time-gutter width.
-                        eventPill(placed)
-                            .position(
-                                x: placed.columnOffset + placed.width / 2,
-                                y: placed.topOffset + placed.height / 2
-                            )
-                    }
+                        // Events positioned absolutely by weekday and time
+                        ForEach(placedEvents(gridWidth: geo.size.width)) { placed in
+                            eventPill(placed)
+                                .position(
+                                    x: placed.x + placed.width / 2,
+                                    y: placed.top + placed.height / 2
+                                )
+                        }
 
-                    // Current time indicator
-                    if isThisWeek {
-                        currentTimeIndicator
+                        // Current time indicator
+                        if isThisWeek {
+                            currentTimeIndicator
+                        }
                     }
                 }
                 .frame(height: hourHeight * CGFloat(workingHours.count))
@@ -196,8 +422,6 @@ private struct HelmWeekCalendarView: View {
         )
         .shadow(color: Theme.Palette.navy.opacity(0.06), radius: 3, x: 0, y: 1)
     }
-
-    private var timeColumnWidth: CGFloat = 56
 
     private func dayHeader(_ date: Date) -> some View {
         let isToday = calendar.isDateInToday(date)
@@ -293,30 +517,73 @@ private struct HelmWeekCalendarView: View {
         .offset(y: yOffset - 4)
     }
 
-    // MARK: Event pills
+    // MARK: Event placement
+
+    /// Lays real events onto the grid: column = weekday, y/height = time/duration.
+    private func placedEvents(gridWidth: CGFloat) -> [PlacedEvent] {
+        let columnWidth = (gridWidth - timeColumnWidth) / 7
+        guard columnWidth > 0 else { return [] }
+        let startHour = CGFloat(workingHours.first ?? 8)
+        let gridHeight = hourHeight * CGFloat(workingHours.count)
+
+        return events.compactMap { event in
+            guard !event.isAllDay else { return nil }
+            let dayStart = calendar.startOfDay(for: event.start)
+            guard let dayIndex = calendar.dateComponents([.day], from: currentWeekStart, to: dayStart).day,
+                  (0..<7).contains(dayIndex) else { return nil }
+
+            let startFraction = CGFloat(calendar.component(.hour, from: event.start))
+                + CGFloat(calendar.component(.minute, from: event.start)) / 60 - startHour
+            let duration = CGFloat(event.end.timeIntervalSince(event.start)) / 3600
+
+            var top = startFraction * hourHeight
+            var height = max(duration * hourHeight, 22)
+            // Clip events that spill outside the visible 08:00–19:00 window.
+            if top < 0 {
+                height += top
+                top = 0
+            }
+            guard top < gridHeight, height > 8 else { return nil }
+            height = min(height, gridHeight - top)
+
+            return PlacedEvent(
+                id: event.id,
+                event: event,
+                x: timeColumnWidth + CGFloat(dayIndex) * columnWidth + 4,
+                top: top + 2,
+                height: height,
+                width: columnWidth - 8
+            )
+        }
+    }
 
     private func eventPill(_ placed: PlacedEvent) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let isFocus = placed.event.title.localizedCaseInsensitiveContains("focus")
+        let fillColor = isFocus
+            ? Theme.Palette.focusBg
+            : Color(hex: placed.event.colorHex.isEmpty ? "#5B8DB8" : placed.event.colorHex)
+
+        return VStack(alignment: .leading, spacing: 2) {
             Text(placed.event.title)
                 .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(placed.event.isFocus ? Theme.Palette.focusText : .white)
+                .foregroundStyle(isFocus ? Theme.Palette.focusText : .white)
                 .lineLimit(1)
 
             if placed.height > 30 {
-                Text(placed.event.timeString)
+                Text(placed.event.timeRangeText)
                     .font(.system(size: 8.5, design: .monospaced))
-                    .foregroundStyle(placed.event.isFocus ? Theme.Palette.focusText.opacity(0.8) : .white.opacity(0.8))
+                    .foregroundStyle(isFocus ? Theme.Palette.focusText.opacity(0.8) : .white.opacity(0.8))
+                    .lineLimit(1)
             }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: max(placed.height, 22))
-        .background(placed.event.bgColor)
+        .frame(width: placed.width, height: placed.height, alignment: .topLeading)
+        .background(fillColor)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(placed.event.borderColor, lineWidth: placed.event.isFocus ? 1 : 0)
+                .strokeBorder(Theme.Palette.focusBorder, lineWidth: isFocus ? 1 : 0)
         )
     }
 
@@ -352,38 +619,6 @@ private struct HelmWeekCalendarView: View {
         currentWeekStart = calendar.date(
             from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: .now)
         ) ?? currentWeekStart
-    }
-
-    // Sample events for the design visualization
-    private var placedEvents: [PlacedEvent] {
-        let todayIndex = isThisWeek ? calendar.component(.weekday, from: .now) - 2 : 0 // Mon=0
-        let baseColumn = timeColumnWidth + 2
-        let columnWidth: CGFloat = 120
-
-        // Build sample events mirroring the design
-        return [
-            PlacedEvent(
-                id: "1",
-                event: SampleEvent(title: "Pipeline review", timeString: "10:00",
-                                   bgColor: Theme.Palette.info, borderColor: .clear, isFocus: false),
-                columnOffset: baseColumn + columnWidth * 0, topOffset: hourHeight * 2 + 8,
-                height: 44, width: columnWidth - 8
-            ),
-            PlacedEvent(
-                id: "2",
-                event: SampleEvent(title: "Northwind check-in", timeString: "",
-                                   bgColor: Theme.Palette.info, borderColor: .clear, isFocus: false),
-                columnOffset: baseColumn + columnWidth * 1, topOffset: hourHeight * 1 + 6,
-                height: 28, width: columnWidth - 8
-            ),
-            PlacedEvent(
-                id: "3",
-                event: SampleEvent(title: "Focus — board deck", timeString: "14:00 · held by Helm",
-                                   bgColor: Theme.Palette.focusBg, borderColor: Theme.Palette.focusBorder, isFocus: true),
-                columnOffset: baseColumn + columnWidth * 1, topOffset: hourHeight * 6 + 8,
-                height: 90, width: columnWidth - 8
-            ),
-        ]
     }
 
     private var askBar: some View {
@@ -423,6 +658,90 @@ private struct HelmWeekCalendarView: View {
     }()
 }
 
+// MARK: - New event sheet
+
+/// Minimal event composer: title, day, start time, duration, calendar.
+/// Writes through EventKit; Helm never edits existing events.
+private struct NewEventSheet: View {
+    let calendars: [DeviceCalendar]
+    let service: EventKitCalendarService
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var title = ""
+    @State private var startDate: Date = Self.nextRoundHour()
+    @State private var durationMinutes = 60
+    @State private var calendarID: String?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("New Event")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Theme.Palette.textPrimary)
+
+            TextField("Title", text: $title)
+                .textFieldStyle(.roundedBorder)
+
+            DatePicker("Starts", selection: $startDate)
+
+            Picker("Duration", selection: $durationMinutes) {
+                Text("30 min").tag(30)
+                Text("1 hour").tag(60)
+                Text("90 min").tag(90)
+                Text("2 hours").tag(120)
+            }
+
+            Picker("Calendar", selection: $calendarID) {
+                Text("Default").tag(String?.none)
+                ForEach(calendars) { deviceCalendar in
+                    Text("\(deviceCalendar.title) — \(deviceCalendar.sourceName)")
+                        .tag(String?.some(deviceCalendar.id))
+                }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.danger)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Add Event") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 360)
+    }
+
+    private func save() {
+        let end = Calendar.current.date(byAdding: .minute, value: durationMinutes, to: startDate) ?? startDate
+        do {
+            try service.createEvent(
+                title: title.trimmingCharacters(in: .whitespaces),
+                start: startDate,
+                end: end,
+                calendarID: calendarID
+            )
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The next whole hour — a sensible default start time.
+    private static func nextRoundHour() -> Date {
+        let cal = Calendar.current
+        let thisHour = cal.date(from: cal.dateComponents([.year, .month, .day, .hour], from: .now)) ?? .now
+        return cal.date(byAdding: .hour, value: 1, to: thisHour) ?? thisHour
+    }
+}
+
 // MARK: - Supporting types
 
 private enum CalendarViewMode: String, CaseIterable {
@@ -439,20 +758,12 @@ private enum CalendarViewMode: String, CaseIterable {
 
 private struct PlacedEvent: Identifiable {
     let id: String
-    let event: SampleEvent
-    let columnOffset: CGFloat
-    let topOffset: CGFloat
+    let event: CalendarEvent
+    /// Leading x of the pill within the grid (includes the time gutter).
+    let x: CGFloat
+    let top: CGFloat
     let height: CGFloat
     let width: CGFloat
-}
-
-private struct SampleEvent: Identifiable {
-    let id = UUID()
-    let title: String
-    let timeString: String
-    let bgColor: Color
-    let borderColor: Color
-    let isFocus: Bool
 }
 
 #Preview {

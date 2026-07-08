@@ -31,6 +31,10 @@ final class EventKitCalendarService {
         EKEventStore.authorizationStatus(for: .event)
     }
 
+    /// Convenience flags so views don't need to import EventKit.
+    var hasFullAccess: Bool { authorizationStatus == .fullAccess }
+    var isDenied: Bool { authorizationStatus == .denied || authorizationStatus == .restricted }
+
     /// Requests full-access authorization. Returns `true` if access was granted.
     /// If the user already granted access, returns `true` immediately without prompting.
     /// If the user previously denied access, returns `false` immediately without prompting.

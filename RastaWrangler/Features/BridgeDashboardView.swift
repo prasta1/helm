@@ -13,6 +13,12 @@ struct BridgeDashboardView: View {
     @Query(sort: \Pipeline.sortOrder) private var pipelines: [Pipeline]
     @Query(sort: \Activity.date, order: .reverse) private var activities: [Activity]
 
+    @State private var calendarService = EventKitCalendarService()
+    @State private var remindersService = RemindersService()
+    @State private var todayEvents: [CalendarEvent] = []
+    @State private var openReminders: [ReminderItem] = []
+    @State private var remindersDoneToday = 0
+
     private let dayStart: Date = Calendar.current.startOfDay(for: .now)
     private let dayEnd: Date = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: .now))!
 
@@ -42,6 +48,31 @@ struct BridgeDashboardView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task { await loadLiveData() }
+        .onReceive(NotificationCenter.default.publisher(for: EventKitCalendarService.changeNotification)) { _ in
+            Task { await loadLiveData() }
+        }
+    }
+
+    // MARK: - Live data (EventKit)
+
+    /// The Bridge is the landing screen, so this is where the app first asks
+    /// for Calendar & Reminders access — its whole purpose is showing the day.
+    private func loadLiveData() async {
+        if !calendarService.hasFullAccess, !calendarService.isDenied {
+            _ = try? await calendarService.requestAccess()
+        }
+        if !remindersService.hasFullAccess, !remindersService.isDenied {
+            _ = try? await remindersService.requestAccess()
+        }
+
+        if calendarService.hasFullAccess {
+            todayEvents = calendarService.events(from: dayStart, to: dayEnd)
+        }
+        if remindersService.hasFullAccess {
+            openReminders = await remindersService.incompleteReminders()
+            remindersDoneToday = await remindersService.completedReminders(since: dayStart).count
+        }
     }
 
     // MARK: - Header
@@ -324,9 +355,10 @@ struct BridgeDashboardView: View {
 
             Spacer(minLength: 0)
 
-            if !tasks.isEmpty {
-                let done = tasks.filter { $0.isCompleted }.count
-                Text("\(done) of \(tasks.count) done before 10 AM — good wind.")
+            if !tasks.isEmpty || remindersDoneToday > 0 {
+                let done = tasks.filter(\.isCompleted).count + remindersDoneToday
+                let total = tasks.count + remindersDoneToday
+                Text("\(done) of \(total) done today\(done > 0 ? " — good wind." : ".")")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.Palette.textMuted)
                     .padding(.top, 8)
@@ -498,12 +530,10 @@ struct BridgeDashboardView: View {
 
     // MARK: - Data sources (bridging model to design)
 
-    /// Tasks due today derived from Activity model.
+    /// Tasks due today (or overdue): Helm task Activities merged with Apple Reminders.
     private var tasksDueToday: [TaskItem] {
-        let todayStart = Calendar.current.startOfDay(for: .now)
-        let todayEnd = Calendar.current.date(byAdding: .day, value: 1, to: todayStart)!
-        return activities
-            .filter { $0.kind == .task && $0.date >= todayStart && $0.date < todayEnd }
+        let helmTasks = activities
+            .filter { $0.kind == .task && $0.date >= dayStart && $0.date < dayEnd }
             .map { activity in
                 let isUrgent = !activity.isCompleted && activity.date < .now
                 return TaskItem(
@@ -515,9 +545,31 @@ struct BridgeDashboardView: View {
                     progress: activity.isCompleted ? 1 : 0,
                     sourceText: sourceLabel(for: activity),
                     dueText: activity.isCompleted ? nil : dueTimeFormatter.string(from: activity.date),
-                    formattedDue: dueTimeFormatter.string(from: activity.date)
+                    formattedDue: dueTimeFormatter.string(from: activity.date),
+                    dueDate: activity.date
                 )
             }
+
+        let reminderTasks = openReminders
+            .filter { $0.dueDate.map { $0 < dayEnd } ?? false }
+            .map { reminder in
+                TaskItem(
+                    title: reminder.title,
+                    details: reminder.notes,
+                    isCompleted: false,
+                    isUrgent: reminder.hasDueTime && (reminder.dueDate.map { $0 < .now } ?? false),
+                    hasProgress: false,
+                    progress: 0,
+                    sourceText: "REMINDERS · \(reminder.listName.uppercased())",
+                    dueText: reminder.hasDueTime ? reminder.dueDate.map { dueTimeFormatter.string(from: $0) } : nil,
+                    formattedDue: reminder.dueDate.map { dueTimeFormatter.string(from: $0) } ?? "",
+                    reminderID: reminder.id,
+                    dueDate: reminder.dueDate
+                )
+            }
+
+        return (helmTasks + reminderTasks)
+            .sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
     }
 
     private var topPriorityDeadline: TaskItem? {
@@ -577,25 +629,49 @@ struct BridgeDashboardView: View {
         return total.formatted(.currency(code: "USD").precision(.fractionLength(0)))
     }
 
+    /// Today's real calendar events plotted onto the 08:00–18:00 strip.
     private var courseEvents: [CourseEvent] {
-        // Sample course events positioned across the 08:00–18:00 day.
-        [
-            CourseEvent(title: "standup", start: 0.15, width: 0.06,
-                        bgColor: Theme.Palette.hairline, borderColor: Theme.Palette.border,
-                        textColor: Theme.Palette.textMuted, isActive: false),
-            CourseEvent(title: "Acme call", start: 0.30, width: 0.11,
-                        bgColor: Theme.Palette.navy, borderColor: .clear,
-                        textColor: Theme.Palette.surface, isActive: true),
-            CourseEvent(title: "Sarah — lunch", start: 0.45, width: 0.12,
-                        bgColor: Theme.Palette.surface, borderColor: Theme.Palette.textMuted,
-                        textColor: Theme.Palette.textSecondary, isActive: false),
-            CourseEvent(title: "dentist", start: 0.70, width: 0.08,
-                        bgColor: .clear, borderColor: Theme.Palette.border,
-                        textColor: Theme.Palette.textSecondary, isActive: false, dashed: true),
-            CourseEvent(title: "focus — proposal", start: 0.85, width: 0.14,
-                        bgColor: Theme.Palette.focusBg, borderColor: Theme.Palette.focusBorder,
-                        textColor: Theme.Palette.focusText, isActive: false),
-        ]
+        let windowStart: CGFloat = 8 * 60
+        let windowMinutes: CGFloat = 10 * 60
+        let now = Date()
+        let cal = Calendar.current
+
+        return todayEvents.compactMap { event in
+            guard !event.isAllDay else { return nil }
+
+            let startMinutes = CGFloat(cal.component(.hour, from: event.start)) * 60
+                + CGFloat(cal.component(.minute, from: event.start)) - windowStart
+            let durationMinutes = CGFloat(event.end.timeIntervalSince(event.start)) / 60
+
+            let start = startMinutes / windowMinutes
+            let width = durationMinutes / windowMinutes
+            // Skip events entirely outside the strip.
+            guard start + width > 0, start < 1 else { return nil }
+
+            let isActive = event.start <= now && now < event.end
+            let isFocus = event.title.localizedCaseInsensitiveContains("focus")
+
+            let bg: Color
+            let border: Color
+            let text: Color
+            if isActive {
+                bg = Theme.Palette.navy; border = .clear; text = Theme.Palette.surface
+            } else if isFocus {
+                bg = Theme.Palette.focusBg; border = Theme.Palette.focusBorder; text = Theme.Palette.focusText
+            } else {
+                bg = Theme.Palette.surface; border = Theme.Palette.border; text = Theme.Palette.textSecondary
+            }
+
+            return CourseEvent(
+                title: event.title,
+                start: max(start, 0),
+                width: min(max(width, 0.04), 1 - max(start, 0)),
+                bgColor: bg,
+                borderColor: border,
+                textColor: text,
+                isActive: isActive
+            )
+        }
     }
 
     private func sourceLabel(for activity: Activity) -> String? {
@@ -629,6 +705,12 @@ struct TaskItem: Identifiable {
     let dueText: String?
     let formattedDue: String
     var tag: String? = nil
+    /// Backing SwiftData Activity, when this row is a Helm task.
+    var activityID: UUID? = nil
+    /// Backing EKReminder identifier, when this row is an Apple Reminder.
+    var reminderID: String? = nil
+    /// Due date used for grouping (nil = no due date).
+    var dueDate: Date? = nil
 }
 
 struct DealAlert: Identifiable {

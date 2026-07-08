@@ -50,6 +50,10 @@ final class RemindersService {
         EKEventStore.authorizationStatus(for: .reminder)
     }
 
+    /// Convenience flags so views don't need to import EventKit.
+    var hasFullAccess: Bool { authorizationStatus == .fullAccess }
+    var isDenied: Bool { authorizationStatus == .denied || authorizationStatus == .restricted }
+
     /// Requests full access to reminders. Returns `true` if granted. Re-invoking
     /// after a grant or denial returns immediately without prompting again.
     func requestAccess() async throws -> Bool {
