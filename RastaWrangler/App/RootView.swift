@@ -3,16 +3,17 @@ import SwiftData
 
 /// The items shown in the sidebar. Pipelines are dynamic; the rest are fixed.
 enum SidebarItem: Hashable {
+    case bridge
+    case tasks
+    case calendar
     case pipeline(UUID)
     case contacts
-    case meetings
-    case calendar
     case assistant
     case settings
 }
 
-/// Root navigation: an adaptive `NavigationSplitView` that becomes a sidebar on
-/// Mac/iPad and a stack on iPhone.
+/// Root navigation: a custom navy sidebar on the left + adaptive detail content.
+/// On Mac this is a NavigationSplitView; on iPhone it collapses to a stack.
 struct RootView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.modelContext) private var modelContext
@@ -23,16 +24,18 @@ struct RootView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingNewPipeline = false
 
+    private let syncTime = "10:21 AM"
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+            helmSidebar
+                .navigationSplitViewColumnWidth(min: 200, ideal: 224, max: 260)
         } detail: {
             detail
         }
         .task {
             if selection == nil {
-                selection = pipelines.first.map { .pipeline($0.id) } ?? .contacts
+                selection = .bridge
             }
         }
         .sheet(isPresented: $showingNewPipeline) {
@@ -40,54 +43,176 @@ struct RootView: View {
         }
     }
 
-    // MARK: Sidebar
+    // MARK: - Helm Navy Sidebar
 
-    private var sidebar: some View {
+    private var helmSidebar: some View {
         List(selection: $selection) {
-            Section("Pipelines") {
-                ForEach(pipelines) { pipeline in
-                    Label {
-                        Text(pipeline.name)
-                    } icon: {
-                        Image(systemName: pipeline.iconSystemName)
-                            .foregroundStyle(Color(hex: pipeline.colorHex))
-                    }
-                    .tag(SidebarItem.pipeline(pipeline.id))
-                }
-                .onDelete(perform: deletePipelines)
-
-                Button {
-                    showingNewPipeline = true
-                } label: {
-                    Label("New Pipeline", systemImage: "plus")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Section("Workspace") {
-                Label("Contacts", systemImage: "person.crop.circle").tag(SidebarItem.contacts)
-                Label("Meetings", systemImage: "text.bubble").tag(SidebarItem.meetings)
-                Label("Calendar", systemImage: "calendar").tag(SidebarItem.calendar)
-                Label("AI Assistant", systemImage: "sparkles").tag(SidebarItem.assistant)
-            }
-
-            #if !os(macOS)
+            // Brand section
             Section {
-                Label("Settings", systemImage: "gearshape").tag(SidebarItem.settings)
+                VStack(spacing: 0) {
+                    // Traffic lights (macOS) + brand
+                    #if os(macOS)
+                    HStack(spacing: 8) {
+                        Circle().fill(Color(hex: "#FF5F57")).frame(width: 12, height: 12)
+                        Circle().fill(Color(hex: "#FEBC2E")).frame(width: 12, height: 12)
+                        Circle().fill(Color(hex: "#28C840")).frame(width: 12, height: 12)
+                        Spacer()
+                    }
+                    .padding(.bottom, 20)
+                    #endif
+
+                    HStack(spacing: 10) {
+                        CompassRose(accentColor: Theme.Palette.brass, bodyColor: Theme.Palette.surface)
+                            .frame(width: 22, height: 22)
+                        Text("HELM")
+                            .font(.system(size: 14, weight: .bold, design: .default))
+                            .kerning(3.5)
+                            .foregroundStyle(Theme.Palette.surface)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 22)
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
-            #endif
+
+            // THE BRIDGE nav items
+            Section("THE BRIDGE") {
+                sidebarNavLabel("The Bridge", icon: "sailboat", badge: nil,
+                                isActive: selection == .bridge || selection == nil)
+                    .tag(SidebarItem.bridge)
+
+                sidebarNavLabel("Tasks", icon: "checklist", badge: nil,
+                                isActive: selection == .tasks)
+                    .tag(SidebarItem.tasks)
+
+                sidebarNavLabel("Calendar", icon: "calendar", badge: nil,
+                                isActive: selection == .calendar)
+                    .tag(SidebarItem.calendar)
+
+                sidebarNavLabel("Pipelines", icon: "chart.bar", badge: "\(pipelineDealCount)",
+                                isActive: isPipelineSelected)
+                    .tag(SidebarItem.pipelinesHint)
+
+                sidebarNavLabel("Contacts", icon: "person.2", badge: nil,
+                                isActive: selection == .contacts)
+                    .tag(SidebarItem.contacts)
+
+                sidebarNavLabel("Ask Helm", icon: "sparkle", badge: nil,
+                                isActive: selection == .assistant)
+                    .tag(SidebarItem.assistant)
+            }
+
+            // CHARTS section — dynamic pipeline list
+            if !pipelines.isEmpty {
+                Section("CHARTS") {
+                    ForEach(pipelines) { pipeline in
+                        chartLabel(pipeline, isActive: selection == .pipeline(pipeline.id))
+                            .tag(SidebarItem.pipeline(pipeline.id))
+                    }
+                }
+            }
         }
-        .navigationTitle("RastaWrangler")
-        .safeAreaInset(edge: .top) {
-            BrandMark()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Theme.Spacing.lg)
-                .padding(.vertical, Theme.Spacing.sm)
-        }
-        #if os(iOS)
         .listStyle(.sidebar)
-        #endif
+        .scrollContentBackground(.hidden)
+        .background(Theme.Palette.navy)
+        .foregroundStyle(Theme.Palette.sidebarText)
+        .safeAreaInset(edge: .bottom) {
+            // Sync status footer
+            VStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Theme.Palette.success)
+                        .frame(width: 6, height: 6)
+                    Text("All lines synced")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.sidebarMuted)
+                }
+                Text("Google \u{00B7} Apple \u{00B7} \(syncTime)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.Palette.sidebarDark)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 14)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Theme.Palette.navy)
+            .overlay(Divider().opacity(0.15), alignment: .top)
+        }
+    }
+
+    // MARK: Sidebar label builders
+
+    private func sidebarNavLabel(_ title: String, icon: String, badge: String?, isActive: Bool) -> some View {
+        HStack(spacing: 10) {
+            // Active indicator bar (brass) on the leading edge.
+            RoundedRectangle(cornerRadius: 2)
+                .fill(isActive ? Theme.Palette.brass : Color.clear)
+                .frame(width: 3, height: 14)
+
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 16)
+
+            Text(title.uppercased())
+                .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                .kerning(0.08)
+
+            Spacer()
+
+            if let badge {
+                Text(badge)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(isActive ? Theme.Palette.sidebarActiveText : Theme.Palette.sidebarMuted)
+            }
+        }
+        .foregroundStyle(isActive ? Theme.Palette.sidebarActiveText : Theme.Palette.sidebarText)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            isActive ? Theme.Palette.sidebarActiveBg : Color.clear,
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .listRowBackground(Theme.Palette.navy)
+        .listRowSeparator(.hidden)
+    }
+
+    /// True when any pipeline board is showing (including the synthetic
+    /// "Pipelines" nav tag), so the Pipelines nav item stays highlighted.
+    private var isPipelineSelected: Bool {
+        if case .pipeline = selection { return true }
+        return false
+    }
+
+    private func chartLabel(_ pipeline: Pipeline, isActive: Bool) -> some View {
+        HStack(spacing: 9) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color(hex: pipeline.colorHex))
+                .frame(width: 8, height: 8)
+
+            Text(pipeline.name)
+                .font(.system(size: 12.5))
+                .lineLimit(1)
+
+            Spacer()
+
+            let openDeals = pipeline.deals.filter { $0.status == .open }.count
+            if openDeals > 0 {
+                Text("\(openDeals)")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Theme.Palette.sidebarMuted)
+            }
+        }
+        .foregroundStyle(isActive ? Theme.Palette.surface : Theme.Palette.sidebarText)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            isActive ? Color.white.opacity(0.06) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 7)
+        )
+        .listRowBackground(Theme.Palette.navy)
+        .listRowSeparator(.hidden)
     }
 
     // MARK: Detail
@@ -95,41 +220,44 @@ struct RootView: View {
     @ViewBuilder
     private var detail: some View {
         switch selection {
+        case .bridge, nil:
+            BridgeDashboardView(selection: $selection)
+        case .tasks:
+            BridgeTasksView()
+        case .calendar:
+            CalendarView()
+                .id("\(settings.calendarSource.rawValue)-\(settings.googleClientID)")
         case let .pipeline(id):
-            if let pipeline = pipelines.first(where: { $0.id == id }) {
+            // The synthetic "Pipelines" nav tag won't match a real id, so fall
+            // back to the first pipeline; only show the empty state when there
+            // are genuinely no pipelines.
+            if let pipeline = pipelines.first(where: { $0.id == id }) ?? pipelines.first {
                 PipelineBoardView(pipeline: pipeline)
                     .id(pipeline.id)
             } else {
-                EmptyStateView(title: "Pipeline not found", message: "It may have been deleted.", systemImage: "questionmark.folder")
+                ContentUnavailableView(
+                    "No pipelines yet",
+                    systemImage: "chart.bar",
+                    description: Text("Create a pipeline to start tracking deals.")
+                )
             }
         case .contacts:
             ContactsView()
-        case .meetings:
-            MeetingsView()
-        case .calendar:
-            CalendarView()
-                // Re-create the view when the source or Google client ID changes so
-                // any in-progress auth/load state is discarded cleanly.
-                .id("\(settings.calendarSource.rawValue)-\(settings.googleClientID)")
         case .assistant:
             AIAssistantView()
         case .settings:
             SettingsView()
-        case nil:
-            EmptyStateView(title: "Welcome to RastaWrangler", message: "Pick a pipeline to get started.", systemImage: "square.stack.3d.up")
         }
     }
 
-    private func deletePipelines(at offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(pipelines[index])
-        }
-        try? modelContext.save()
+    // MARK: Count helpers
+
+    private var pipelineDealCount: Int {
+        pipelines.reduce(0) { $0 + $1.deals.filter { $0.status == .open }.count }
     }
 }
 
-#Preview {
-    RootView()
-        .environment(AppSettings())
-        .modelContainer(PersistenceController.makeInMemoryContainer())
+extension SidebarItem {
+    /// Synthetic tag used to select Pipelines header (children are the actual pipelines).
+    static let pipelinesHint = SidebarItem.pipeline(UUID())
 }

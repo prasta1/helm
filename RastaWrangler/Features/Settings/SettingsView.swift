@@ -117,7 +117,7 @@ struct SettingsView: View {
             if let testResult {
                 Text(testResult)
                     .font(.caption)
-                    .foregroundStyle(testResult.hasPrefix("✅") ? Theme.Palette.green : Theme.Palette.red)
+                    .foregroundStyle(testResult.hasPrefix("✅") ? Theme.Palette.success : Theme.Palette.danger)
             }
         }
     }

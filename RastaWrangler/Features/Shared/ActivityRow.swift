@@ -11,12 +11,12 @@ struct ActivityRow: View {
                     activity.isCompleted.toggle()
                 } label: {
                     Image(systemName: activity.isCompleted ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(activity.isCompleted ? Theme.Palette.green : .secondary)
+                        .foregroundStyle(activity.isCompleted ? Theme.Palette.success : .secondary)
                 }
                 .buttonStyle(.plain)
             } else {
                 Image(systemName: activity.kind.systemImage)
-                    .foregroundStyle(Theme.Palette.accent)
+                    .foregroundStyle(Theme.Palette.brass)
                     .frame(width: 20)
             }
 
@@ -34,7 +34,7 @@ struct ActivityRow: View {
                 HStack(spacing: Theme.Spacing.sm) {
                     Text(activity.date, format: .dateTime.month().day().hour().minute())
                     if activity.source == .ai {
-                        Chip(text: "AI", systemImage: "sparkles", color: Theme.Palette.gold)
+                        Chip(text: "AI", systemImage: "sparkles", color: Theme.Palette.brass)
                     } else if activity.source == .granola {
                         Chip(text: "Granola", color: .purple)
                     }

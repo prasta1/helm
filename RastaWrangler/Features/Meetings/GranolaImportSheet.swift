@@ -21,7 +21,7 @@ struct GranolaImportSheet: View {
                     } label: {
                         HStack(alignment: .top) {
                             Image(systemName: selectedIDs.contains(meeting.id) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(alreadyImported ? .secondary : Theme.Palette.accent)
+                                .foregroundStyle(alreadyImported ? .secondary : Theme.Palette.brass)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(meeting.title).foregroundStyle(.primary)
                                 Text(meeting.date, format: .dateTime.month().day().year())

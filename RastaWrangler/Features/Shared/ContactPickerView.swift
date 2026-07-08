@@ -34,7 +34,7 @@ struct ContactPickerView: View {
                             Spacer()
                             if selectedIDs.contains(contact.id) {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(Theme.Palette.accent)
+                                    .foregroundStyle(Theme.Palette.brass)
                             }
                         }
                     }

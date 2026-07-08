@@ -1,6 +1,7 @@
 import Foundation
 
-/// A calendar event fetched from Google, in a lightweight app-facing form.
+/// A calendar event in a lightweight app-facing form, produced by both the
+/// Google and EventKit services.
 struct CalendarEvent: Identifiable, Hashable {
     let id: String
     let title: String
@@ -11,6 +12,10 @@ struct CalendarEvent: Identifiable, Hashable {
     let organizerEmail: String
     let htmlLink: String
     let isAllDay: Bool
+    /// Identifier of the calendar this event belongs to (EventKit only; empty for Google).
+    var calendarID: String = ""
+    /// Display color of the owning calendar as `#RRGGBB` (EventKit only; empty for Google).
+    var colorHex: String = ""
 
     var timeRangeText: String {
         if isAllDay { return "All day" }

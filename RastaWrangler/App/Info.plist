@@ -29,7 +29,11 @@
 
 	<!-- Required by EventKit's requestFullAccessToEvents() on iOS 17+ / macOS 14+. -->
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>RastaWrangler reads your calendar events so you can turn upcoming meetings into CRM notes.</string>
+	<string>Helm shows your calendar events on the Bridge and in the week view, and can add events you create here.</string>
+
+	<!-- Required by EventKit's requestFullAccessToReminders() on iOS 17+ / macOS 14+. -->
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Helm shows your Apple Reminders alongside its own tasks, and can check them off or add new ones for you.</string>
 
 	<!-- iOS launch screen (ignored on macOS). -->
 	<key>UILaunchScreen</key>

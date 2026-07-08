@@ -58,6 +58,42 @@ final class AppSettings {
         set { withMutation(keyPath: \.calendarSource) { defaults.set(newValue.rawValue, forKey: Keys.calendarSource) } }
     }
 
+    /// Device calendars shown in the week view. `nil` means "all calendars";
+    /// a set (possibly empty) means only those calendar identifiers.
+    var enabledCalendarIDs: Set<String>? {
+        get {
+            access(keyPath: \.enabledCalendarIDs)
+            guard let array = defaults.array(forKey: Keys.enabledCalendarIDs) as? [String] else { return nil }
+            return Set(array)
+        }
+        set {
+            withMutation(keyPath: \.enabledCalendarIDs) {
+                if let newValue {
+                    defaults.set(Array(newValue), forKey: Keys.enabledCalendarIDs)
+                } else {
+                    defaults.removeObject(forKey: Keys.enabledCalendarIDs)
+                }
+            }
+        }
+    }
+
+    // MARK: Reminders
+
+    /// Where the Tasks quick-add files new items: `nil` = a Helm task (SwiftData);
+    /// otherwise the identifier of an Apple Reminders list.
+    var quickAddReminderListID: String? {
+        get { access(keyPath: \.quickAddReminderListID); return defaults.string(forKey: Keys.quickAddReminderListID) }
+        set {
+            withMutation(keyPath: \.quickAddReminderListID) {
+                if let newValue {
+                    defaults.set(newValue, forKey: Keys.quickAddReminderListID)
+                } else {
+                    defaults.removeObject(forKey: Keys.quickAddReminderListID)
+                }
+            }
+        }
+    }
+
     // MARK: Google
 
     var googleClientID: String {
@@ -125,6 +161,8 @@ final class AppSettings {
         static let customModel = "settings.llm.custom.model"
         static let customBaseURL = "settings.llm.custom.baseURL"
         static let calendarSource = "settings.calendar.source"
+        static let enabledCalendarIDs = "settings.calendar.enabledIDs"
+        static let quickAddReminderListID = "settings.reminders.quickAddListID"
         static let googleClientID = "settings.google.clientID"
         static let granolaBookmark = "settings.granola.bookmark"
         static let appearance = "settings.appearance"
