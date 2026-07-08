@@ -78,7 +78,7 @@ struct RootView: View {
             }
             #endif
         }
-        .navigationTitle("RastaWrangler")
+        .navigationTitle("Helm")
         .safeAreaInset(edge: .top) {
             BrandMark()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -114,7 +114,7 @@ struct RootView: View {
         case .settings:
             SettingsView()
         case nil:
-            EmptyStateView(title: "Welcome to RastaWrangler", message: "Pick a pipeline to get started.", systemImage: "square.stack.3d.up")
+            EmptyStateView(title: "Welcome to Helm", message: "Pick a pipeline to get started.", systemImage: "square.stack.3d.up")
         }
     }
 

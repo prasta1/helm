@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct RastaWranglerApp: App {
+struct HelmApp: App {
     /// The single shared SwiftData container for the whole app.
     private let container = PersistenceController.makeSharedContainer()
 

@@ -5,7 +5,7 @@ import AppKit
 import UIKit
 #endif
 
-/// Central design tokens for RastaWrangler. Keeping spacing, radii, colors and
+/// Central design tokens for Helm. Keeping spacing, radii, colors and
 /// typography in one place is what makes the app feel consistent across
 /// iPhone, iPad and Mac.
 enum Theme {

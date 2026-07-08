@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>RastaWrangler</string>
+	<string>Helm</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -49,9 +49,9 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.rastawrangler.deal</string>
+			<string>com.helm.deal</string>
 			<key>UTTypeDescription</key>
-			<string>RastaWrangler Deal</string>
+			<string>Helm Deal</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>

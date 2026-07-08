@@ -23,7 +23,7 @@ enum PersistenceController {
     ///
     /// To enable iCloud sync across your Mac and iOS devices, add an iCloud
     /// container to the target's capabilities and change `cloudKitDatabase` to
-    /// `.automatic` (or `.private("iCloud.com.rastawrangler.app")`). It's kept
+    /// `.automatic` (or `.private("iCloud.com.helm.app")`). It's kept
     /// local by default so the project builds and runs with no provisioning.
     static func makeSharedContainer() -> ModelContainer {
         let configuration = ModelConfiguration(

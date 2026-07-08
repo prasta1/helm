@@ -7,13 +7,13 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		1A0000000000000000000005 /* RastaWrangler.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RastaWrangler.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A0000000000000000000005 /* Helm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Helm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		1A0000000000000000000006 /* RastaWrangler */ = {
+		1A0000000000000000000006 /* Helm */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = RastaWrangler;
+			path = Helm;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +32,7 @@
 		1A0000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				1A0000000000000000000006 /* RastaWrangler */,
+				1A0000000000000000000006 /* Helm */,
 				1A0000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,7 +40,7 @@
 		1A0000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				1A0000000000000000000005 /* RastaWrangler.app */,
+				1A0000000000000000000005 /* Helm.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		1A0000000000000000000004 /* RastaWrangler */ = {
+		1A0000000000000000000004 /* Helm */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 1A000000000000000000000B /* Build configuration list for PBXNativeTarget "RastaWrangler" */;
+			buildConfigurationList = 1A000000000000000000000B /* Build configuration list for PBXNativeTarget "Helm" */;
 			buildPhases = (
 				1A0000000000000000000007 /* Sources */,
 				1A0000000000000000000008 /* Frameworks */,
@@ -61,11 +61,11 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				1A0000000000000000000006 /* RastaWrangler */,
+				1A0000000000000000000006 /* Helm */,
 			);
-			name = RastaWrangler;
-			productName = RastaWrangler;
-			productReference = 1A0000000000000000000005 /* RastaWrangler.app */;
+			name = Helm;
+			productName = Helm;
+			productReference = 1A0000000000000000000005 /* Helm.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -83,7 +83,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 1A000000000000000000000A /* Build configuration list for PBXProject "RastaWrangler" */;
+			buildConfigurationList = 1A000000000000000000000A /* Build configuration list for PBXProject "Helm" */;
 			compatibilityVersion = "Xcode 15.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -98,7 +98,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				1A0000000000000000000004 /* RastaWrangler */,
+				1A0000000000000000000004 /* Helm */,
 			);
 		};
 /* End PBXProject section */
@@ -253,7 +253,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = RastaWrangler/App/RastaWrangler.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Helm/App/Helm.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -261,12 +261,12 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = RastaWrangler/App/Info.plist;
+				INFOPLIST_FILE = Helm/App/Info.plist;
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=iphoneos*]" = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=iphonesimulator*]" = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rastawrangler.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.helm.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -280,7 +280,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = RastaWrangler/App/RastaWrangler.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Helm/App/Helm.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -288,12 +288,12 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = RastaWrangler/App/Info.plist;
+				INFOPLIST_FILE = Helm/App/Info.plist;
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=iphoneos*]" = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=iphonesimulator*]" = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rastawrangler.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.helm.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -305,7 +305,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		1A000000000000000000000A /* Build configuration list for PBXProject "RastaWrangler" */ = {
+		1A000000000000000000000A /* Build configuration list for PBXProject "Helm" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				1A000000000000000000000C /* Debug */,
@@ -314,7 +314,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		1A000000000000000000000B /* Build configuration list for PBXNativeTarget "RastaWrangler" */ = {
+		1A000000000000000000000B /* Build configuration list for PBXNativeTarget "Helm" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				1A000000000000000000000E /* Debug */,

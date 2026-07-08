@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Shared enumerations used across the RastaWrangler data model.
+/// Shared enumerations used across the Helm data model.
 ///
 /// Enums are persisted in SwiftData as their `String` raw value via a
 /// dedicated `…Raw` stored property plus a computed accessor. This keeps
