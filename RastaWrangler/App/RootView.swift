@@ -108,7 +108,9 @@ struct RootView: View {
             MeetingsView()
         case .calendar:
             CalendarView()
-                .id(settings.googleClientID)
+                // Re-create the view when the source or Google client ID changes so
+                // any in-progress auth/load state is discarded cleanly.
+                .id("\(settings.calendarSource.rawValue)-\(settings.googleClientID)")
         case .assistant:
             AIAssistantView()
         case .settings:

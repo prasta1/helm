@@ -11,5 +11,8 @@
 	<!-- Read access to the Granola cache the user selects (macOS). -->
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
+	<!-- Required for EventKit calendar access under the macOS App Sandbox. -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
 </dict>
 </plist>

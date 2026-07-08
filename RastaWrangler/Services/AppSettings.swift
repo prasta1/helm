@@ -48,6 +48,16 @@ final class AppSettings {
         set { withMutation(keyPath: \.customBaseURL) { defaults.set(newValue, forKey: Keys.customBaseURL) } }
     }
 
+    // MARK: Calendar
+
+    var calendarSource: CalendarSourceKind {
+        get {
+            access(keyPath: \.calendarSource)
+            return CalendarSourceKind(rawValue: defaults.string(forKey: Keys.calendarSource) ?? "") ?? .google
+        }
+        set { withMutation(keyPath: \.calendarSource) { defaults.set(newValue.rawValue, forKey: Keys.calendarSource) } }
+    }
+
     // MARK: Google
 
     var googleClientID: String {
@@ -114,6 +124,7 @@ final class AppSettings {
         static let openAIModel = "settings.llm.openai.model"
         static let customModel = "settings.llm.custom.model"
         static let customBaseURL = "settings.llm.custom.baseURL"
+        static let calendarSource = "settings.calendar.source"
         static let googleClientID = "settings.google.clientID"
         static let granolaBookmark = "settings.granola.bookmark"
         static let appearance = "settings.appearance"

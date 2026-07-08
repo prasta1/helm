@@ -27,6 +27,10 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026. All rights reserved.</string>
 
+	<!-- Required by EventKit's requestFullAccessToEvents() on iOS 17+ / macOS 14+. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>RastaWrangler reads your calendar events so you can turn upcoming meetings into CRM notes.</string>
+
 	<!-- iOS launch screen (ignored on macOS). -->
 	<key>UILaunchScreen</key>
 	<dict/>

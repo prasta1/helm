@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// App settings: appearance, LLM provider + keys, Google Calendar, Granola, and
+/// App settings: appearance, LLM provider + keys, calendar source, Google Calendar, Granola, and
 /// custom-field management.
 struct SettingsView: View {
     @Environment(AppSettings.self) private var settings
@@ -33,15 +33,7 @@ struct SettingsView: View {
 
             aiSection(settings: settings)
 
-            Section("Google Calendar") {
-                TextField("OAuth Client ID", text: $settings.googleClientID)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
-                Text("Create an OAuth client (iOS type) for bundle id com.rastawrangler.app in Google Cloud Console, enable the Calendar API, then sign in from the Calendar tab.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            calendarSection(settings: settings)
 
             Section("Granola") {
                 #if os(macOS)
@@ -126,6 +118,33 @@ struct SettingsView: View {
                 Text(testResult)
                     .font(.caption)
                     .foregroundStyle(testResult.hasPrefix("✅") ? Theme.Palette.green : Theme.Palette.red)
+            }
+        }
+    }
+
+    // MARK: Calendar section
+
+    @ViewBuilder
+    private func calendarSection(settings: AppSettings) -> some View {
+        @Bindable var settings = settings
+
+        Section("Calendar") {
+            Picker("Source", selection: $settings.calendarSource) {
+                ForEach(CalendarSourceKind.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
+            if settings.calendarSource == .google {
+                TextField("OAuth Client ID", text: $settings.googleClientID)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    #endif
+                Text("Create an OAuth client (iOS type) for bundle id com.rastawrangler.app in Google Cloud Console, enable the Calendar API, then sign in from the Calendar tab.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Reads calendars already set up on this device (System Settings → Internet Accounts). You'll be asked to allow access the first time you open the Calendar tab.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }

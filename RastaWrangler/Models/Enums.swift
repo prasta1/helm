@@ -96,6 +96,7 @@ enum ActivitySource: String, Codable {
     case manual
     case granola
     case googleCalendar
+    case deviceCalendar
     case ai
 }
 
@@ -151,6 +152,24 @@ enum LLMProviderKind: String, Codable, CaseIterable, Identifiable {
         case .anthropic: return "Anthropic (Claude)"
         case .openAI: return "OpenAI"
         case .custom: return "Custom / Local"
+        }
+    }
+}
+
+/// Which source the Calendar tab reads events from.
+enum CalendarSourceKind: String, CaseIterable, Identifiable {
+    /// Google Calendar via OAuth (hand-rolled PKCE flow).
+    case google
+    /// The device's built-in calendar database via EventKit — reads whatever
+    /// calendars are synced in System Settings → Internet Accounts.
+    case device
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .google: return "Google Calendar"
+        case .device: return "This Device"
         }
     }
 }
