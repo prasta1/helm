@@ -7,7 +7,7 @@ struct KeychainStore {
     static let shared = KeychainStore()
 
     /// Service namespace under which all items are stored.
-    private let service = "com.rastawrangler.app"
+    private let service = "com.helm.app"
 
     // MARK: String helpers
 

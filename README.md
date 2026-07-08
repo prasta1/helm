@@ -1,4 +1,4 @@
-# RastaWrangler
+# Helm
 
 A personal, customizable CRM for macOS, iPad and iPhone — built in SwiftUI +
 SwiftData. Track deals across pipelines (Job Search and Peregrine Prospects to
@@ -40,15 +40,15 @@ summaries, and use an LLM for AI-assisted follow-ups, next steps and briefs.
 
 ## Getting started
 
-The repo ships a pre-generated `RastaWrangler.xcodeproj`, so:
+The repo ships a pre-generated `Helm.xcodeproj`, so:
 
 ```bash
-open RastaWrangler.xcodeproj
+open Helm.xcodeproj
 ```
 
-Select the **RastaWrangler** scheme, pick a Mac or an iOS destination, and run.
+Select the **Helm** scheme, pick a Mac or an iOS destination, and run.
 For device/App Store builds set your **Team** under *Signing & Capabilities*
-(the bundle id is `com.rastawrangler.app` — change it to your own).
+(the bundle id is `com.helm.app` — change it to your own).
 
 ### Regenerating the project (optional)
 
@@ -62,7 +62,7 @@ xcodegen generate
 ```
 
 Because sources use Xcode's *synchronized folder* feature, simply adding a `.swift`
-file under `RastaWrangler/` includes it in the build — no project edits needed.
+file under `Helm/` includes it in the build — no project edits needed.
 
 ## Configuration
 
@@ -81,7 +81,7 @@ Secrets are stored in the **Keychain**, never in source or `UserDefaults`.
 
 1. In [Google Cloud Console](https://console.cloud.google.com/): create a
    project, enable the **Google Calendar API**, and create an **OAuth client ID**
-   of type **iOS** for bundle id `com.rastawrangler.app`.
+   of type **iOS** for bundle id `com.helm.app`.
 2. Paste the **Client ID** into Settings → Google Calendar.
 3. Open the **Calendar** tab and **Connect Google Calendar**. Auth uses OAuth 2.0
    with PKCE via `ASWebAuthenticationSession`; the redirect is the reversed client
@@ -106,7 +106,7 @@ Granola keeps a local cache on macOS at
 ## Architecture
 
 ```
-RastaWrangler/
+Helm/
   App/            App entry, root navigation, Info.plist, entitlements
   DesignSystem/   Theme tokens + reusable SwiftUI components
   Models/         SwiftData @Model types (Pipeline, Stage, Deal, Contact, …)
@@ -133,7 +133,7 @@ RastaWrangler/
 To sync between your Mac and iOS devices:
 
 1. Add the **iCloud** capability with **CloudKit** to the target and create a
-   container (e.g. `iCloud.com.rastawrangler.app`).
+   container (e.g. `iCloud.com.helm.app`).
 2. In `PersistenceController.makeSharedContainer()`, change `cloudKitDatabase:
    .none` to `.automatic`.
 

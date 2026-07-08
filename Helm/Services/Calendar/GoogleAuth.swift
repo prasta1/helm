@@ -14,7 +14,7 @@ import UIKit
 ///
 /// ## Setup (one time)
 /// 1. In Google Cloud Console create an OAuth **iOS** client (works for macOS
-///    too) for the bundle id `com.rastawrangler.app`.
+///    too) for the bundle id `com.helm.app`.
 /// 2. Paste the Client ID into Settings → Google. The redirect scheme is the
 ///    reversed client id, which is already registered in `Info.plist`.
 /// 3. Enable the Google Calendar API for the project.
@@ -45,7 +45,7 @@ final class GoogleAuth: NSObject, ObservableObject {
     private var redirectURI: String {
         let reversed = clientID
             .components(separatedBy: ".apps.googleusercontent.com").first
-            .map { "com.googleusercontent.apps.\($0)" } ?? "com.rastawrangler.app"
+            .map { "com.googleusercontent.apps.\($0)" } ?? "com.helm.app"
         return "\(reversed):/oauth2redirect"
     }
 

@@ -133,7 +133,7 @@ struct EmptyStateView: View {
 
 // MARK: - Brand mark
 
-/// The RastaWrangler wordmark with a subtle green/gold/red accent bar.
+/// The Helm wordmark with a subtle green/gold/red accent bar.
 struct BrandMark: View {
     var body: some View {
         HStack(spacing: Theme.Spacing.sm) {
@@ -146,7 +146,7 @@ struct BrandMark: View {
                     )
                 )
                 .frame(width: 5, height: 22)
-            Text("RastaWrangler")
+            Text("Helm")
                 .font(.headline.weight(.bold))
         }
     }

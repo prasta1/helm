@@ -39,7 +39,7 @@ struct SettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     #endif
-                Text("Create an OAuth client (iOS type) for bundle id com.rastawrangler.app in Google Cloud Console, enable the Calendar API, then sign in from the Calendar tab.")
+                Text("Create an OAuth client (iOS type) for bundle id com.helm.app in Google Cloud Console, enable the Calendar API, then sign in from the Calendar tab.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

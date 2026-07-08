@@ -8,7 +8,7 @@ struct AIAssistant {
 
     private static let systemPrompt = LLMMessage.system(
         """
-        You are the assistant inside RastaWrangler, a personal CRM used for job \
+        You are the assistant inside Helm, a personal CRM used for job \
         searching and business development ("Peregrine Prospects"). Be concise, \
         practical and warm. When asked to draft outreach, write in first person \
         as the user. Prefer plain language over jargon. Use markdown when it \
