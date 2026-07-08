@@ -1,8 +1,5 @@
 import SwiftUI
 import SwiftData
-#if os(macOS)
-import AppKit
-#endif
 
 /// Lists imported and manually created meeting notes, and hosts the Granola
 /// import flow.
@@ -96,48 +93,27 @@ struct MeetingsView: View {
     // MARK: Import
 
     private func importFromGranola() {
-        #if os(macOS)
-        do {
-            let bookmark = try resolveOrPromptForGranolaAccess()
-            let parsed = try GranolaService().importFromCache(bookmark: bookmark)
-            if parsed.isEmpty {
-                errorMessage = "No meetings were found in the Granola cache. Its format may have changed — try adding manually."
-            } else {
-                importCandidates = parsed
-                showingImport = true
+        let apiKey = settings.granolaAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            errorMessage = GranolaService.GranolaError.missingAPIKey.localizedDescription
+            return
+        }
+        // @MainActor so the @State mutations after the await run on the main
+        // actor; the network request itself still runs off-main in URLSession.
+        Task { @MainActor in
+            do {
+                let parsed = try await GranolaService().importFromAPI(apiKey: apiKey)
+                if parsed.isEmpty {
+                    errorMessage = "No meetings came back from Granola. Only notes with a generated summary are available via the API — or add one manually."
+                } else {
+                    importCandidates = parsed
+                    showingImport = true
+                }
+            } catch {
+                errorMessage = error.localizedDescription
             }
-        } catch {
-            errorMessage = error.localizedDescription
         }
-        #else
-        errorMessage = "Automatic Granola import runs on macOS. On iOS/iPad, add meetings manually or sync via iCloud from your Mac."
-        addManualMeeting()
-        #endif
     }
-
-    #if os(macOS)
-    /// Returns a usable security-scoped bookmark, prompting the user to grant
-    /// access to the Granola cache the first time.
-    private func resolveOrPromptForGranolaAccess() throws -> Data {
-        if let bookmark = settings.granolaBookmark {
-            return bookmark
-        }
-        let panel = NSOpenPanel()
-        panel.message = "Select Granola's cache file (cache-v3.json) or its folder"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        if let defaultURL = GranolaService.defaultCacheURL {
-            panel.directoryURL = defaultURL.deletingLastPathComponent()
-        }
-        guard panel.runModal() == .OK, let url = panel.url else {
-            throw GranolaService.GranolaError.accessDenied
-        }
-        let bookmark = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
-        settings.granolaBookmark = bookmark
-        return bookmark
-    }
-    #endif
 
     private func importMeetings(_ chosen: [GranolaMeeting]) {
         let existingIDs = Set(meetings.compactMap(\.externalID))

@@ -10,124 +10,112 @@ struct GranolaMeeting: Identifiable, Hashable {
     var attendees: [String]
 }
 
-/// Imports meeting summaries from the Granola desktop app.
+/// Imports meetings from Granola's **official public API**
+/// (`https://public-api.granola.ai/v1`).
 ///
-/// Granola keeps a local cache on macOS at
-/// `~/Library/Application Support/Granola/cache-v3.json`. That file is an
-/// undocumented, evolving format, so this importer is deliberately defensive: it
-/// walks the JSON tree looking for document-shaped nodes and extracts their
-/// text. If Granola changes its schema, use **manual import** (paste markdown or
-/// pick an exported file), which is always reliable.
+/// The user creates an API key in Granola (Settings → Connectors → API keys) and
+/// pastes it into RastaWrangler's Settings; we store it in the Keychain and send
+/// it as a bearer token. Because this is a plain HTTPS API, it needs no access to
+/// Granola's local files, works on every platform, and survives Granola's on-disk
+/// format changes. If it's unavailable (the API is a Business/Enterprise feature),
+/// **manual import** (paste markdown) is always available as a fallback.
 ///
-/// On macOS the app is sandboxed, so the user grants read access once via an
-/// open panel; the resulting security-scoped bookmark is persisted in
-/// `AppSettings.granolaBookmark`.
+/// The JSON field names below are matched defensively against a few likely
+/// aliases, since the exact response shape isn't fully documented publicly.
 struct GranolaService {
 
-    /// The default location of Granola's cache on macOS.
-    static var defaultCacheURL: URL? {
-        #if os(macOS)
-        FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("Granola/cache-v3.json")
-        #else
-        nil
-        #endif
+    private static let baseURL = "https://public-api.granola.ai/v1"
+
+    // MARK: API import
+
+    /// Fetches recent meetings from Granola's public API.
+    ///
+    /// - Parameter apiKey: The user's Granola API key (starts with `grn_`).
+    /// - Returns: Parsed meetings, newest first.
+    func importFromAPI(apiKey: String) async throws -> [GranolaMeeting] {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw GranolaError.missingAPIKey }
+        let data = try await get(path: "notes", apiKey: key)
+        return try parseNotes(data: data)
     }
 
-    // MARK: Cache import (macOS)
+    /// Performs an authenticated GET against the Granola API and returns the body,
+    /// mapping auth/error statuses to typed errors.
+    private func get(path: String, apiKey: String) async throws -> Data {
+        var request = URLRequest(url: URL(string: "\(Self.baseURL)/\(path)")!)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-    /// Reads and parses meetings from a Granola cache file the user granted
-    /// access to via a security-scoped bookmark.
-    func importFromCache(bookmark: Data) throws -> [GranolaMeeting] {
-        #if os(macOS)
-        var isStale = false
-        let url = try URL(
-            resolvingBookmarkData: bookmark,
-            options: [.withSecurityScope],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        )
-        guard url.startAccessingSecurityScopedResource() else {
-            throw GranolaError.accessDenied
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw GranolaError.notAuthorized
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                throw GranolaError.apiError(status: http.statusCode)
+            }
         }
-        defer { url.stopAccessingSecurityScopedResource() }
-
-        // The bookmark may point at the directory or the file itself.
-        let fileURL = url.hasDirectoryPath ? url.appendingPathComponent("cache-v3.json") : url
-        let data = try Data(contentsOf: fileURL)
-        return try parse(data: data)
-        #else
-        throw GranolaError.unsupportedPlatform
-        #endif
+        return data
     }
 
     // MARK: Parsing
 
-    /// Parses meetings from raw Granola cache data.
-    func parse(data: Data) throws -> [GranolaMeeting] {
-        var root = try JSONSerialization.jsonObject(with: data)
+    /// Maps a Granola API `notes` response into meetings. Accepts either a bare
+    /// array or an object wrapping the array under a common key.
+    func parseNotes(data: Data) throws -> [GranolaMeeting] {
+        let root = try JSONSerialization.jsonObject(with: data)
 
-        // Granola double-encodes: a top-level object with a "cache" string that
-        // is itself a JSON document. Unwrap it if present.
-        if let dict = root as? [String: Any], let cacheString = dict["cache"] as? String,
-           let inner = cacheString.data(using: .utf8),
-           let innerObject = try? JSONSerialization.jsonObject(with: inner) {
-            root = innerObject
+        let items: [[String: Any]]
+        if let array = root as? [[String: Any]] {
+            items = array
+        } else if let dict = root as? [String: Any] {
+            let node = dict["notes"] ?? dict["data"] ?? dict["items"] ?? dict["documents"]
+            items = (node as? [[String: Any]]) ?? []
+        } else {
+            items = []
         }
 
-        var meetings: [GranolaMeeting] = []
-        collectDocuments(from: root, into: &meetings)
-
-        // De-duplicate by id, keeping the richest version.
-        var byID: [String: GranolaMeeting] = [:]
-        for meeting in meetings {
-            if let existing = byID[meeting.id],
-               existing.summaryMarkdown.count >= meeting.summaryMarkdown.count {
-                continue
-            }
-            byID[meeting.id] = meeting
-        }
-        return byID.values.sorted { $0.date > $1.date }
+        // List responses may omit the full summary, so don't require content here;
+        // a note with just a title is still a valid import candidate.
+        let meetings = items.compactMap { Self.meeting(from: $0, requireContent: false) }
+        return meetings.sorted { $0.date > $1.date }
     }
 
-    /// Recursively walks the JSON looking for document-shaped nodes: objects
-    /// that carry a title plus some notes/content.
-    private func collectDocuments(from node: Any, into meetings: inout [GranolaMeeting]) {
-        if let dict = node as? [String: Any] {
-            if let meeting = Self.meeting(from: dict) {
-                meetings.append(meeting)
-            }
-            for value in dict.values {
-                collectDocuments(from: value, into: &meetings)
-            }
-        } else if let array = node as? [Any] {
-            for value in array {
-                collectDocuments(from: value, into: &meetings)
-            }
-        }
-    }
+    /// Builds a `GranolaMeeting` from a note/document dictionary, matching a few
+    /// likely field-name aliases.
+    ///
+    /// - Parameter requireContent: When true, a note with no summary/notes body is
+    ///   rejected (used when scanning arbitrary JSON). When false, an empty summary
+    ///   is allowed (used for API list responses that carry metadata only).
+    private static func meeting(from dict: [String: Any], requireContent: Bool) -> GranolaMeeting? {
+        guard let title = (dict["title"] ?? dict["name"] ?? dict["subject"]) as? String,
+              !title.isEmpty else { return nil }
 
-    private static func meeting(from dict: [String: Any]) -> GranolaMeeting? {
-        // Heuristic: a Granola document has a title and a content/notes body.
-        guard let title = (dict["title"] ?? dict["name"]) as? String, !title.isEmpty else { return nil }
-
-        let contentNode = dict["notes"] ?? dict["notes_markdown"] ?? dict["content"] ?? dict["summary"]
+        let contentNode = dict["notes_markdown"] ?? dict["notes_plain"] ?? dict["notes"]
+            ?? dict["content"] ?? dict["summary"] ?? dict["overview"]
         let summary: String
         if let markdown = contentNode as? String {
             summary = markdown
         } else if let node = contentNode {
             summary = extractText(from: node)
         } else {
+            summary = ""
+        }
+        if requireContent, summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return nil
         }
-        guard !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
-        let id = (dict["id"] ?? dict["document_id"]) as? String ?? UUID().uuidString
-        let transcript = (dict["transcript"] as? String) ?? extractText(from: dict["transcript"] ?? "")
-        let date = parseDate(dict["created_at"] ?? dict["updated_at"] ?? dict["date"]) ?? Date()
-        let attendees = (dict["attendees"] as? [Any])?.compactMap { ($0 as? [String: Any])?["name"] as? String ?? $0 as? String } ?? []
+        let id = (dict["id"] ?? dict["document_id"] ?? dict["note_id"]) as? String ?? UUID().uuidString
+        let transcriptNode = dict["transcript"]
+        let transcript = (transcriptNode as? String) ?? (transcriptNode.map { extractText(from: $0) } ?? "")
+        let date = parseDate(dict["created_at"] ?? dict["updated_at"] ?? dict["date"] ?? dict["created"]) ?? Date()
+        let attendeeNode = dict["attendees"] ?? dict["people"]
+        let attendees = (attendeeNode as? [Any])?.compactMap {
+            ($0 as? [String: Any])?["name"] as? String
+                ?? ($0 as? [String: Any])?["email"] as? String
+                ?? $0 as? String
+        } ?? []
 
         return GranolaMeeting(
             id: id,
@@ -169,12 +157,17 @@ struct GranolaService {
     }
 
     enum GranolaError: LocalizedError {
-        case accessDenied, unsupportedPlatform
+        case missingAPIKey, notAuthorized
+        case apiError(status: Int)
 
         var errorDescription: String? {
             switch self {
-            case .accessDenied: return "Couldn't access the Granola cache. Re-select it in Settings."
-            case .unsupportedPlatform: return "Automatic Granola import is only available on macOS. Use manual import instead."
+            case .missingAPIKey:
+                return "Add your Granola API key in Settings first (Granola → Settings → Connectors → API keys)."
+            case .notAuthorized:
+                return "Granola rejected the API key. Check that it's correct and still active in Granola's settings."
+            case .apiError(let status):
+                return "Granola's API returned an error (\(status)). Try again shortly, or add meetings manually."
             }
         }
     }

@@ -67,12 +67,6 @@ final class AppSettings {
 
     // MARK: Granola
 
-    /// Security-scoped bookmark to the Granola cache the user granted access to.
-    var granolaBookmark: Data? {
-        get { access(keyPath: \.granolaBookmark); return defaults.data(forKey: Keys.granolaBookmark) }
-        set { withMutation(keyPath: \.granolaBookmark) { defaults.set(newValue, forKey: Keys.granolaBookmark) } }
-    }
-
     // MARK: Appearance
 
     var appearance: AppearanceMode {
@@ -93,6 +87,11 @@ final class AppSettings {
     var customAPIKey: String {
         get { keychain.string(for: KeychainKey.customLLMAPIKey) ?? "" }
         set { keychain.setString(newValue, for: KeychainKey.customLLMAPIKey) }
+    }
+    /// Granola public-API key (starts with `grn_`).
+    var granolaAPIKey: String {
+        get { keychain.string(for: KeychainKey.granolaAPIKey) ?? "" }
+        set { keychain.setString(newValue, for: KeychainKey.granolaAPIKey) }
     }
 
     // MARK: Derived
@@ -126,7 +125,6 @@ final class AppSettings {
         static let customBaseURL = "settings.llm.custom.baseURL"
         static let calendarSource = "settings.calendar.source"
         static let googleClientID = "settings.google.clientID"
-        static let granolaBookmark = "settings.granola.bookmark"
         static let appearance = "settings.appearance"
     }
 }

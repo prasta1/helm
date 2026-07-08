@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var anthropicKey = ""
     @State private var openAIKey = ""
     @State private var customKey = ""
+    @State private var granolaKey = ""
     @State private var testResult: String?
     @State private var isTesting = false
 
@@ -36,18 +37,12 @@ struct SettingsView: View {
             calendarSection(settings: settings)
 
             Section("Granola") {
-                #if os(macOS)
-                Button("Re-select Granola Cache…") {
-                    settings.granolaBookmark = nil
-                }
-                Text(settings.granolaBookmark == nil
-                     ? "You'll be asked to grant access on your next import."
-                     : "Access granted. Import from the Meetings tab.")
+                SecureField("API Key (grn_…)", text: $granolaKey)
+                    .onChange(of: granolaKey) { settings.granolaAPIKey = granolaKey }
+                Link("Get an API key", destination: URL(string: "https://docs.granola.ai/introduction")!)
+                    .font(.caption)
+                Text("In Granola: Settings → Connectors → API keys → Create. Then import from the Meetings tab. Requires a Granola Business plan.")
                     .font(.caption).foregroundStyle(.secondary)
-                #else
-                Text("Automatic Granola import is available in the macOS app. On this device, add meetings manually or sync from your Mac via iCloud.")
-                    .font(.caption).foregroundStyle(.secondary)
-                #endif
             }
 
             Section("Customization") {
@@ -69,6 +64,7 @@ struct SettingsView: View {
             anthropicKey = settings.anthropicAPIKey
             openAIKey = settings.openAIAPIKey
             customKey = settings.customAPIKey
+            granolaKey = settings.granolaAPIKey
         }
     }
 

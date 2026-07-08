@@ -77,4 +77,5 @@ enum KeychainKey {
     static let openAIAPIKey = "llm.openai.apiKey"
     static let customLLMAPIKey = "llm.custom.apiKey"
     static let googleTokens = "google.oauth.tokens"
+    static let granolaAPIKey = "granola.apiKey"
 }
