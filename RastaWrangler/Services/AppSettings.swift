@@ -94,6 +94,34 @@ final class AppSettings {
         }
     }
 
+    /// Which Reminders lists are visible in the Tasks view. `nil` = all lists shown;
+    /// a non-nil set means only those list identifiers are included.
+    var enabledReminderListIDs: Set<String>? {
+        get {
+            access(keyPath: \.enabledReminderListIDs)
+            guard let array = defaults.array(forKey: Keys.enabledReminderListIDs) as? [String] else { return nil }
+            return Set(array)
+        }
+        set {
+            withMutation(keyPath: \.enabledReminderListIDs) {
+                if let newValue {
+                    defaults.set(Array(newValue), forKey: Keys.enabledReminderListIDs)
+                } else {
+                    defaults.removeObject(forKey: Keys.enabledReminderListIDs)
+                }
+            }
+        }
+    }
+
+    // MARK: GitHub
+
+    /// Public GitHub repos whose issues and PRs appear as tasks.
+    /// Each entry is an "owner/repo" slug, e.g. "apple/swift".
+    var trackedGitHubRepos: [String] {
+        get { access(keyPath: \.trackedGitHubRepos); return defaults.stringArray(forKey: Keys.trackedGitHubRepos) ?? [] }
+        set { withMutation(keyPath: \.trackedGitHubRepos) { defaults.set(newValue, forKey: Keys.trackedGitHubRepos) } }
+    }
+
     // MARK: Google
 
     var googleClientID: String {
@@ -166,6 +194,8 @@ final class AppSettings {
         static let googleClientID = "settings.google.clientID"
         static let granolaBookmark = "settings.granola.bookmark"
         static let appearance = "settings.appearance"
+        static let enabledReminderListIDs = "settings.reminders.enabledListIDs"
+        static let trackedGitHubRepos = "settings.github.trackedRepos"
     }
 }
 

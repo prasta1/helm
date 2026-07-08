@@ -17,6 +17,7 @@ enum PersistenceController {
         CustomFieldDefinition.self,
         CustomFieldValue.self,
         MeetingNote.self,
+        GitHubItemOverride.self,
     ])
 
     /// The shared, on-disk container used by the running app.

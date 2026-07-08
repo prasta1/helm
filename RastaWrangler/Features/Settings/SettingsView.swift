@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var customKey = ""
     @State private var testResult: String?
     @State private var isTesting = false
+    @State private var newRepo = ""
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,8 @@ struct SettingsView: View {
             aiSection(settings: settings)
 
             calendarSection(settings: settings)
+
+            githubSection(settings: settings)
 
             Section("Granola") {
                 #if os(macOS)
@@ -147,6 +150,50 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    // MARK: GitHub section
+
+    @ViewBuilder
+    private func githubSection(settings: AppSettings) -> some View {
+        Section("GitHub") {
+            ForEach(settings.trackedGitHubRepos, id: \.self) { repo in
+                HStack {
+                    Image(systemName: "arrow.triangle.pull")
+                        .foregroundStyle(.secondary)
+                    Text(repo)
+                    Spacer()
+                    Button {
+                        settings.trackedGitHubRepos.removeAll { $0 == repo }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(Theme.Palette.danger)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack {
+                TextField("owner/repo", text: $newRepo)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    #endif
+                    .onSubmit { addRepo(settings: settings) }
+                Button("Add") { addRepo(settings: settings) }
+                    .disabled(newRepo.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            Text("Add public repos to track open issues and PRs as tasks. No sign-in required.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func addRepo(settings: AppSettings) {
+        let slug = newRepo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !slug.isEmpty, !settings.trackedGitHubRepos.contains(slug) else { return }
+        settings.trackedGitHubRepos.append(slug)
+        newRepo = ""
     }
 
     private func testConnection() {

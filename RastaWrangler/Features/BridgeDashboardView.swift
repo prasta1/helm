@@ -709,6 +709,8 @@ struct TaskItem: Identifiable {
     var activityID: UUID? = nil
     /// Backing EKReminder identifier, when this row is an Apple Reminder.
     var reminderID: String? = nil
+    /// Backing GitHub item ID ("owner/repo#number"), when this row is a GitHub issue or PR.
+    var githubItemID: String? = nil
     /// Due date used for grouping (nil = no due date).
     var dueDate: Date? = nil
 }

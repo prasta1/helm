@@ -13,6 +13,7 @@ struct BridgeTasksView: View {
     @Environment(\.openURL) private var openURL
 
     @Query(sort: \Activity.date, order: .forward) private var activities: [Activity]
+    @Query private var githubOverrides: [GitHubItemOverride]
 
     @State private var service = RemindersService()
     @State private var reminders: [ReminderItem] = []
@@ -22,6 +23,11 @@ struct BridgeTasksView: View {
     @State private var selectedPeriod: TaskPeriod = .today
     @State private var newTaskText = ""
     @State private var saveErrorMessage: String?
+    @State private var githubService = GitHubService()
+    @State private var githubItems: [GitHubItem] = []
+    @State private var githubFetchError = false
+    @State private var dueDateItemID: String?
+    @State private var pendingDueDate = Date.now
 
     var body: some View {
         HStack(spacing: 0) {
@@ -42,6 +48,11 @@ struct BridgeTasksView: View {
         } message: {
             Text(saveErrorMessage ?? "")
         }
+        .task(id: settings.trackedGitHubRepos) { await fetchGitHubItems() }
+        .sheet(isPresented: Binding(
+            get: { dueDateItemID != nil },
+            set: { if !$0 { dueDateItemID = nil } }
+        )) { githubDueDateSheet }
     }
 
     // MARK: Reminders loading
@@ -60,6 +71,13 @@ struct BridgeTasksView: View {
         reminders = await service.incompleteReminders()
         let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .now
         doneReminders = await service.completedReminders(since: weekAgo)
+    }
+
+    private func fetchGitHubItems() async {
+        guard !settings.trackedGitHubRepos.isEmpty else { githubItems = []; return }
+        let result = await githubService.fetchItems(for: settings.trackedGitHubRepos)
+        githubItems = result.items
+        githubFetchError = !result.errors.isEmpty
     }
 
     private var saveErrorBinding: Binding<Bool> {
@@ -93,11 +111,25 @@ struct BridgeTasksView: View {
 
                         listSectionHeader("APPLE REMINDERS")
                         ForEach(reminderLists) { list in
-                            listRow(
-                                name: list.title,
-                                count: reminders.filter { $0.listID == list.id }.count,
-                                color: Color(hex: list.colorHex)
-                            )
+                            let enabled = isReminderListEnabled(list.id)
+                            Button { toggleReminderList(list.id) } label: {
+                                listRow(
+                                    name: list.title,
+                                    count: reminders.filter { $0.listID == list.id }.count,
+                                    color: Color(hex: list.colorHex)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .opacity(enabled ? 1 : 0.38)
+                        }
+                    }
+
+                    if !settings.trackedGitHubRepos.isEmpty {
+                        Divider().padding(.vertical, 8)
+
+                        listSectionHeader("GITHUB")
+                        ForEach(settings.trackedGitHubRepos, id: \.self) { repo in
+                            githubRepoRow(repo)
                         }
                     }
                 }
@@ -149,6 +181,47 @@ struct BridgeTasksView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
+    }
+
+    private func githubRepoRow(_ repo: String) -> some View {
+        let count = openGitHubItems.filter { $0.repoSlug == repo }.count
+        return HStack(spacing: 10) {
+            Image(systemName: "arrow.triangle.pull")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textMuted)
+                .frame(width: 8)
+            Text(repo)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .lineLimit(1)
+            Spacer()
+            if githubFetchError {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.Palette.danger)
+            } else {
+                Text("\(count)")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Theme.Palette.textMuted)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+    }
+
+    private func isReminderListEnabled(_ listID: String) -> Bool {
+        guard let enabled = settings.enabledReminderListIDs else { return true }
+        return enabled.contains(listID)
+    }
+
+    private func toggleReminderList(_ listID: String) {
+        var enabled = settings.enabledReminderListIDs ?? Set(reminderLists.map(\.id))
+        if enabled.contains(listID) {
+            enabled.remove(listID)
+        } else {
+            enabled.insert(listID)
+        }
+        settings.enabledReminderListIDs = enabled
     }
 
     // MARK: Main content
@@ -474,6 +547,23 @@ struct BridgeTasksView: View {
             !isLast ? Divider().padding(.leading, 47) : nil,
             alignment: .bottom
         )
+        .contextMenu {
+            if let githubID = task.githubItemID {
+                Button("Set Due Date…") {
+                    pendingDueDate = githubOverride(for: githubID)?.dueDate ?? .now
+                    dueDateItemID = githubID
+                }
+                if githubOverride(for: githubID)?.dueDate != nil {
+                    Button("Clear Due Date") {
+                        findOrCreateOverride(for: githubID).dueDate = nil
+                    }
+                }
+                Divider()
+                if let item = githubItems.first(where: { $0.id == githubID }) {
+                    Button("Open on GitHub") { openURL(item.htmlURL) }
+                }
+            }
+        }
     }
 
     private func toggle(_ task: TaskItem) {
@@ -489,6 +579,8 @@ struct BridgeTasksView: View {
                 return
             }
             Task { await reload() }
+        } else if let githubID = task.githubItemID {
+            findOrCreateOverride(for: githubID).isLocallyDone = !task.isCompleted
         }
     }
 
@@ -543,6 +635,9 @@ struct BridgeTasksView: View {
         + openReminders
             .filter { $0.dueDate.map { $0 < todayEnd } ?? false }
             .map { makeItem($0, style: .time) }
+        + openGitHubItems
+            .filter { githubOverride(for: $0.id)?.dueDate.map { $0 < todayEnd } ?? false }
+            .map { makeItem($0, style: .time) }
 
         return completedToday + open.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
     }
@@ -563,14 +658,20 @@ struct BridgeTasksView: View {
         + openReminders
             .filter { $0.dueDate.map { offsets.contains(offset(of: $0)) } ?? false }
             .map { makeItem($0, style: style) }
+        + openGitHubItems
+            .filter { githubOverride(for: $0.id)?.dueDate.map { offsets.contains(offset(of: $0)) } ?? false }
+            .map { makeItem($0, style: style) }
 
         return items.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
     }
 
-    /// Reminders with no due date. (Helm tasks always carry a date.)
+    /// Items with no due date: dateless Reminders and GitHub items without a local due date.
     private var tasksAnytime: [TaskItem] {
         openReminders
             .filter { $0.dueDate == nil }
+            .map { makeItem($0, style: .none) }
+        + openGitHubItems
+            .filter { githubOverride(for: $0.id)?.dueDate == nil }
             .map { makeItem($0, style: .none) }
     }
 
@@ -581,6 +682,9 @@ struct BridgeTasksView: View {
         + activities
             .filter { $0.kind == .task && $0.isCompleted && $0.date >= weekAgo }
             .map { makeItem($0, style: .date) }
+        + githubItems
+            .filter { githubOverride(for: $0.id)?.isLocallyDone ?? false }
+            .map { makeItem($0, style: .date) }
         return items.sorted { ($0.dueDate ?? .distantPast) > ($1.dueDate ?? .distantPast) }
     }
 
@@ -589,7 +693,26 @@ struct BridgeTasksView: View {
     }
 
     private var openReminders: [ReminderItem] {
-        reminders.filter { !$0.isCompleted }
+        reminders.filter {
+            !$0.isCompleted && isReminderListEnabled($0.listID)
+        }
+    }
+
+    private var openGitHubItems: [GitHubItem] {
+        githubItems.filter { !(githubOverride(for: $0.id)?.isLocallyDone ?? false) }
+    }
+
+    private func githubOverride(for itemID: String) -> GitHubItemOverride? {
+        githubOverrides.first { $0.itemID == itemID }
+    }
+
+    private func findOrCreateOverride(for itemID: String) -> GitHubItemOverride {
+        if let existing = githubOverrides.first(where: { $0.itemID == itemID }) {
+            return existing
+        }
+        let new = GitHubItemOverride(itemID: itemID)
+        modelContext.insert(new)
+        return new
     }
 
     // MARK: Item mapping
@@ -624,6 +747,57 @@ struct BridgeTasksView: View {
             reminderID: reminder.id,
             dueDate: reminder.dueDate ?? reminder.completionDate
         )
+    }
+
+    private func makeItem(_ item: GitHubItem, style: DueStyle) -> TaskItem {
+        let override = githubOverride(for: item.id)
+        let due = override?.dueDate
+        let prefix = item.isPR ? "PR #\(item.number)" : "#\(item.number)"
+        return TaskItem(
+            title: "[\(prefix)] \(item.title)",
+            details: item.body.isEmpty ? nil : item.body,
+            isCompleted: override?.isLocallyDone ?? false,
+            isUrgent: due.map { $0 < .now } ?? false,
+            hasProgress: false,
+            progress: 0,
+            sourceText: "GITHUB · \(item.repoSlug)",
+            dueText: due.flatMap { dueText(for: $0, hasTime: false, style: style) },
+            formattedDue: due.map { Formatters.shortDay.string(from: $0) } ?? "",
+            githubItemID: item.id,
+            dueDate: due
+        )
+    }
+
+    // MARK: GitHub date picker sheet
+
+    private var githubDueDateSheet: some View {
+        VStack(spacing: 20) {
+            Text("Set Due Date")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textPrimary)
+
+            DatePicker("Due date", selection: $pendingDueDate, displayedComponents: .date)
+                .datePickerStyle(.graphical)
+                .tint(Theme.Palette.brass)
+
+            HStack(spacing: 12) {
+                Button("Cancel") { dueDateItemID = nil }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.Palette.textMuted)
+                Spacer()
+                Button("Save") {
+                    if let id = dueDateItemID {
+                        findOrCreateOverride(for: id).dueDate = pendingDueDate
+                    }
+                    dueDateItemID = nil
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.Palette.brassDim)
+                .fontWeight(.semibold)
+            }
+        }
+        .padding(24)
+        .frame(width: 320)
     }
 
     private func dueText(for date: Date, hasTime: Bool, style: DueStyle) -> String? {
