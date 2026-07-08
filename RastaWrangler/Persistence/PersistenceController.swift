@@ -25,7 +25,7 @@ enum PersistenceController {
     /// container to the target's capabilities and change `cloudKitDatabase` to
     /// `.automatic` (or `.private("iCloud.com.rastawrangler.app")`). It's kept
     /// local by default so the project builds and runs with no provisioning.
-    static func makeSharedContainer() -> ModelContainer {
+    @MainActor static func makeSharedContainer() -> ModelContainer {
         let configuration = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: false,
@@ -45,7 +45,7 @@ enum PersistenceController {
     }
 
     /// An ephemeral container for SwiftUI previews and unit tests.
-    static func makeInMemoryContainer(seeded: Bool = true) -> ModelContainer {
+    @MainActor static func makeInMemoryContainer(seeded: Bool = true) -> ModelContainer {
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         // In-memory containers should never fail; a crash here is a programmer
         // error worth surfacing loudly.

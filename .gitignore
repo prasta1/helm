@@ -19,6 +19,9 @@ Package.resolved
 .DS_Store
 *.swp
 
+# Claude Code
+.claude/
+
 # Secrets — never commit API keys or OAuth client secrets
 Secrets.xcconfig
 *.env
