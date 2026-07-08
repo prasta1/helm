@@ -124,6 +124,8 @@ struct EmptyStateView: View {
     var systemImage: String = "tray"
     var actionTitle: String? = nil
     var action: (() -> Void)? = nil
+    var secondaryActionTitle: String? = nil
+    var secondaryAction: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: Theme.Spacing.md) {
@@ -143,6 +145,11 @@ struct EmptyStateView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.Palette.brass)
                     .padding(.top, Theme.Spacing.xs)
+            }
+            if let secondaryActionTitle, let secondaryAction {
+                Button(secondaryActionTitle, action: secondaryAction)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Theme.Palette.brassDim)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -10,6 +10,7 @@ struct ContactsView: View {
     @State private var selection: Contact?
     @State private var search = ""
     @State private var filterTag: String? = nil
+    @State private var showingCSVImport = false
 
     private let filterTags = ["All", "Warm", "Investors", "Recent"]
 
@@ -21,7 +22,9 @@ struct ContactsView: View {
                     message: "Add the people you're tracking — recruiters, hiring managers, prospects.",
                     systemImage: "person.crop.circle.badge.plus",
                     actionTitle: "Add Contact",
-                    action: addContact
+                    action: addContact,
+                    secondaryActionTitle: "Import from CSV…",
+                    secondaryAction: { showingCSVImport = true }
                 )
             } else {
                 HStack(spacing: 0) {
@@ -42,6 +45,19 @@ struct ContactsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    showingCSVImport = true
+                } label: {
+                    Label("Import CSV", systemImage: "square.and.arrow.down")
+                }
+                .help("Import contacts or companies from a CSV file")
+            }
+        }
+        .sheet(isPresented: $showingCSVImport) {
+            CSVImportSheet()
+        }
     }
 
     // MARK: Contact list (left panel)
