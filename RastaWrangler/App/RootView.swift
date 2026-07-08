@@ -50,17 +50,6 @@ struct RootView: View {
             // Brand section
             Section {
                 VStack(spacing: 0) {
-                    // Traffic lights (macOS) + brand
-                    #if os(macOS)
-                    HStack(spacing: 8) {
-                        Circle().fill(Color(hex: "#FF5F57")).frame(width: 12, height: 12)
-                        Circle().fill(Color(hex: "#FEBC2E")).frame(width: 12, height: 12)
-                        Circle().fill(Color(hex: "#28C840")).frame(width: 12, height: 12)
-                        Spacer()
-                    }
-                    .padding(.bottom, 20)
-                    #endif
-
                     HStack(spacing: 10) {
                         CompassRose(accentColor: Theme.Palette.brass, bodyColor: Theme.Palette.surface)
                             .frame(width: 22, height: 22)
