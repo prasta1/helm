@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- macOS App Sandbox. Ignored on iOS (sandbox is implicit there). -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Outbound network for LLM APIs and Google Calendar. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Read access to the Granola cache the user selects (macOS). -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+</dict>
+</plist>

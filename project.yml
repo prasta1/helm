@@ -1,0 +1,46 @@
+# XcodeGen spec for RastaWrangler.
+#
+# Regenerate the Xcode project at any time with:
+#   brew install xcodegen   # once
+#   xcodegen generate
+#
+# A pre-generated RastaWrangler.xcodeproj is also committed so you can open the
+# project immediately without installing XcodeGen. Regenerate if you add new
+# top-level build settings or targets.
+
+name: RastaWrangler
+options:
+  bundleIdPrefix: com.rastawrangler
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  RastaWrangler:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: RastaWrangler
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rastawrangler.app
+        PRODUCT_NAME: RastaWrangler
+        INFOPLIST_FILE: RastaWrangler/App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RastaWrangler/App/RastaWrangler.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        GENERATE_INFOPLIST_FILE: NO
+        # macOS hardened runtime is fine to leave on for a signed personal app.
+        ENABLE_HARDENED_RUNTIME: YES
