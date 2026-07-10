@@ -171,7 +171,7 @@ struct AIAssistantView: View {
             Divider()
                 .padding(.horizontal, 20)
 
-            // Ship's Log
+            // Ship's Log — derived from the current session's transcript
             VStack(alignment: .leading, spacing: 12) {
                 Text("SHIP'S LOG")
                     .font(.system(size: 10, weight: .bold))
@@ -179,9 +179,15 @@ struct AIAssistantView: View {
                     .foregroundStyle(Theme.Palette.textMuted)
 
                 VStack(spacing: 10) {
-                    logEntry("Yesterday — summarized 3 meetings into notes")
-                    logEntry("Mon — drafted 2 follow-ups, both sent")
-                    logEntry("Mon — held 3 focus blocks for deck prep")
+                    if shipLogEntries.isEmpty {
+                        Text("No history this session.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.Palette.textMuted)
+                    } else {
+                        ForEach(shipLogEntries, id: \.self) { entry in
+                            logEntry(entry)
+                        }
+                    }
                 }
             }
             .padding(20)
@@ -195,11 +201,11 @@ struct AIAssistantView: View {
                     .kerning(0.8)
                     .foregroundStyle(Theme.Palette.focusText)
 
-                Text("“What's slipping this week?”")
+                Text(""What's slipping this week?"")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.Palette.focusText.opacity(0.8))
 
-                Text("“Plot tomorrow like today.”")
+                Text(""Plot tomorrow like today."")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.Palette.focusText.opacity(0.8))
             }
@@ -238,6 +244,19 @@ struct AIAssistantView: View {
             .font(.system(size: 12))
             .foregroundStyle(Theme.Palette.textPrimary.opacity(0.85))
             .lineSpacing(2)
+    }
+
+    /// Recent assistant turns from this session, formatted as log lines.
+    private var shipLogEntries: [String] {
+        transcript
+            .filter { $0.role == .assistant }
+            .suffix(3)
+            .reversed()
+            .map { turn in
+                let preview = String(turn.text.prefix(48)).replacingOccurrences(of: "\n", with: " ")
+                let truncated = turn.text.count > 48 ? "\(preview)…" : preview
+                return "Today — \(truncated)"
+            }
     }
 
     // MARK: Send

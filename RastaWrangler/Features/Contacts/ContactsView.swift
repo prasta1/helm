@@ -11,7 +11,7 @@ struct ContactsView: View {
     @State private var search = ""
     @State private var filterTag: String? = nil
 
-    private let filterTags = ["All", "Warm", "Investors", "Recent"]
+    private let filterTags = ["All", "Warm", "Recent"]
 
     var body: some View {
         Group {
@@ -121,12 +121,12 @@ struct ContactsView: View {
                 }
             }
 
-            // Footer
+            // Footer — shows actual contact count
             HStack(spacing: 12) {
                 Circle()
-                    .fill(Theme.Palette.success)
+                    .fill(Theme.Palette.textMuted)
                     .frame(width: 6, height: 6)
-                Text("Google Contacts + Apple, deduped")
+                Text("\(contacts.count) contact\(contacts.count == 1 ? "" : "s")")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.textMuted)
             }
@@ -269,7 +269,7 @@ struct ContactsView: View {
                 standingRow("Last touch", formattedLastTouch(contact))
                 standingRow("Next", formattedNextTouch(contact), valueColor: Theme.Palette.brassDim)
                 standingRow("Cadence", cadenceLabel(contact))
-                standingRow("Met", "\(contact.deals.count) linked deals")
+                standingRow("Deals", contact.deals.isEmpty ? "None" : "\(contact.deals.count) linked")
             }
         }
         .padding(18)
@@ -409,7 +409,7 @@ struct ContactsView: View {
             HStack(spacing: 10) {
                 CompassRose(accentColor: Theme.Palette.brassDim, bodyColor: Theme.Palette.canvas)
                     .frame(width: 13, height: 13)
-                Text("Ask about \(contact.name.split(separator: " ").first ?? "them") — “when did we last talk pricing?”")
+                Text("Ask about \(contact.name.split(separator: " ").first ?? "them") — "when did we last talk pricing?"")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.Palette.textMuted)
             }
@@ -428,12 +428,33 @@ struct ContactsView: View {
     // MARK: Helpers
 
     private var filteredContacts: [Contact] {
-        guard !search.isEmpty else { return contacts }
-        return contacts.filter {
-            $0.name.localizedCaseInsensitiveContains(search) ||
-            $0.company.localizedCaseInsensitiveContains(search) ||
-            $0.email.localizedCaseInsensitiveContains(search)
+        var result = contacts
+
+        // Apply filter chip
+        if let tag = filterTag {
+            switch tag {
+            case "warm":
+                result = result.filter { isWarm($0) }
+            case "recent":
+                let cutoff = Date.now.addingTimeInterval(-30 * 24 * 3600)
+                result = result.filter { contact in
+                    contact.activities.contains { $0.date >= cutoff }
+                }
+            default:
+                break
+            }
         }
+
+        // Apply search
+        if !search.isEmpty {
+            result = result.filter {
+                $0.name.localizedCaseInsensitiveContains(search) ||
+                $0.company.localizedCaseInsensitiveContains(search) ||
+                $0.email.localizedCaseInsensitiveContains(search)
+            }
+        }
+
+        return result
     }
 
     private func actionButton(_ label: String) -> some View {
@@ -499,8 +520,21 @@ struct ContactsView: View {
         return "No upcoming"
     }
 
+    /// Computes actual touch cadence from activity history.
     private func cadenceLabel(_ contact: Contact) -> String {
-        "~monthly"
+        let dates = contact.activities.map(\.date).sorted()
+        guard dates.count >= 2 else { return dates.isEmpty ? "No history" : "—" }
+
+        let intervals = zip(dates, dates.dropFirst()).map { $1.timeIntervalSince($0) }
+        let avgDays = intervals.reduce(0, +) / Double(intervals.count) / 86_400
+
+        switch avgDays {
+        case ..<7:  return "~weekly"
+        case ..<21: return "~biweekly"
+        case ..<45: return "~monthly"
+        case ..<90: return "~quarterly"
+        default:    return "Infrequent"
+        }
     }
 
     private func contactSourceLabel(_ contact: Contact) -> String {
