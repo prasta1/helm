@@ -8,8 +8,12 @@ import UIKit
 
 /// Routes to the active calendar source, wrapped in Helm design.
 struct CalendarView: View {
+    /// Google OAuth client ID from Settings — passed down so GoogleAuth is
+    /// built from the app's real settings rather than a fresh AppSettings().
+    let googleClientID: String
+
     var body: some View {
-        HelmWeekCalendarView()
+        HelmWeekCalendarView(googleClientID: googleClientID)
             .navigationTitle("Calendar")
     }
 }
@@ -20,9 +24,9 @@ private struct HelmWeekCalendarView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.openURL) private var openURL
 
-    @State private var anchorDate: Date = Calendar.current.date(
-        from: Calendar.current.dateComponents([.yearForWeekOfYear, .weekOfYear], from: .now)
-    ) ?? .now
+    // Anchored to Monday from the start — the locale-aware week start would
+    // render Sun–Thu columns in the US until the first navigation snapped it.
+    @State private var anchorDate: Date = HelmWeekCalendarView.monday(containing: .now)
     @State private var viewMode: CalendarViewMode = .week
     @State private var events: [CalendarEvent] = []
     @State private var deviceCalendars: [DeviceCalendar] = []
@@ -38,8 +42,10 @@ private struct HelmWeekCalendarView: View {
     private let hourHeight: CGFloat = 52
     private let timeColumnWidth: CGFloat = 56
 
-    init() {
-        _googleAuth = StateObject(wrappedValue: GoogleAuth(clientID: AppSettings().googleClientID))
+    init(googleClientID: String) {
+        // RootView re-creates this view (via .id) whenever the client ID
+        // changes, so capturing it once at init is safe.
+        _googleAuth = StateObject(wrappedValue: GoogleAuth(clientID: googleClientID))
     }
 
     // MARK: Body
@@ -107,6 +113,14 @@ private struct HelmWeekCalendarView: View {
     }
 
     private func mondayOfWeek(containing date: Date) -> Date {
+        Self.monday(containing: date, calendar: calendar)
+    }
+
+    /// Monday of the week containing `date`. The week view is deliberately a
+    /// Mon–Fri work week, so it anchors to Monday regardless of the locale's
+    /// first weekday (which would yield Sun–Thu columns in the US). The month
+    /// grid, by contrast, is a full calendar and does follow the locale.
+    private static func monday(containing date: Date, calendar: Calendar = .current) -> Date {
         let weekday = calendar.component(.weekday, from: date)
         let daysToMonday = (weekday - 2 + 7) % 7
         return calendar.date(byAdding: .day, value: -daysToMonday, to: calendar.startOfDay(for: date)) ?? date
@@ -259,7 +273,8 @@ private struct HelmWeekCalendarView: View {
                 calendarFilterMenu
             }
 
-            // Period navigation ‹ Today ›
+            // Period navigation ‹ Today › — same bindings as Apple Calendar:
+            // ⌘← / ⌘→ for previous/next period, ⌘T for today.
             HStack(spacing: 0) {
                 Button(action: previousPeriod) {
                     Text("‹")
@@ -269,6 +284,10 @@ private struct HelmWeekCalendarView: View {
                         .padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
+                .modifier(HoverHighlight())
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+                .help("Previous period (⌘←)")
+                .accessibilityLabel("Previous period")
 
                 Button(action: goToToday) {
                     Text("Today")
@@ -278,6 +297,9 @@ private struct HelmWeekCalendarView: View {
                         .padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
+                .modifier(HoverHighlight())
+                .keyboardShortcut("t", modifiers: .command)
+                .help("Go to today (⌘T)")
 
                 Button(action: nextPeriod) {
                     Text("›")
@@ -287,6 +309,10 @@ private struct HelmWeekCalendarView: View {
                         .padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
+                .modifier(HoverHighlight())
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+                .help("Next period (⌘→)")
+                .accessibilityLabel("Next period")
             }
             .background(Theme.Palette.surface, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.border, lineWidth: 1))
@@ -433,13 +459,16 @@ private struct HelmWeekCalendarView: View {
 
     private var timeGrid: some View {
         VStack(spacing: 0) {
-            // Day-column headers
+            // Day-column headers. fixedSize pins the row to its natural
+            // height — the clear spacer Rectangle is otherwise vertically
+            // greedy and steals half the card from the time grid.
             HStack(spacing: 0) {
                 Rectangle().fill(Color.clear).frame(width: timeColumnWidth)
                 ForEach(displayDays, id: \.self) { day in
                     dayHeader(day).frame(maxWidth: .infinity)
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             .overlay(Rectangle().fill(Theme.Palette.hairline).frame(height: 1), alignment: .bottom)
 
             // Scrollable time rows + event pills
@@ -545,7 +574,18 @@ private struct HelmWeekCalendarView: View {
         let startHour = CGFloat(workingHours.first ?? 8)
         let gridHeight = hourHeight * CGFloat(workingHours.count)
 
-        return events.compactMap { event in
+        /// An event pinned to its vertical slot, before lane assignment.
+        struct Slot {
+            let event: CalendarEvent
+            let dayIndex: Int
+            let top: CGFloat
+            let height: CGFloat
+            var lane = 0
+            var laneCount = 1
+        }
+
+        // Pass 1: vertical placement within each day column.
+        var slots: [Slot] = events.compactMap { event in
             guard !event.isAllDay else { return nil }
             let dayStart = calendar.startOfDay(for: event.start)
             guard let dayIndex = calendar.dateComponents([.day], from: referenceDate, to: dayStart).day,
@@ -553,21 +593,65 @@ private struct HelmWeekCalendarView: View {
 
             let startFraction = CGFloat(calendar.component(.hour, from: event.start))
                 + CGFloat(calendar.component(.minute, from: event.start)) / 60 - startHour
-            let duration = CGFloat(event.end.timeIntervalSince(event.start)) / 3600
+            // Calendar-based minutes stay correct for events spanning a DST change.
+            let duration = CGFloat(calendar.dateComponents([.minute], from: event.start, to: event.end).minute ?? 0) / 60
 
             var top = startFraction * hourHeight
             var height = max(duration * hourHeight, 22)
             if top < 0 { height += top; top = 0 }
             guard top < gridHeight, height > 8 else { return nil }
             height = min(height, gridHeight - top)
+            return Slot(event: event, dayIndex: dayIndex, top: top, height: height)
+        }
 
+        // Pass 2: Calendar.app-style overlap handling. Within a day, events
+        // that overlap in time form a "cluster"; each cluster splits the
+        // column into equal-width lanes so concurrent events sit side by side
+        // instead of drawing on top of each other.
+        slots.sort {
+            ($0.dayIndex, $0.top, $1.height) < ($1.dayIndex, $1.top, $0.height)
+        }
+
+        var laidOut: [Slot] = []
+        var index = 0
+        while index < slots.count {
+            let day = slots[index].dayIndex
+            var cluster: [Slot] = []
+            var laneEnds: [CGFloat] = []   // bottom edge of the last event in each lane
+            var clusterEnd: CGFloat = -.greatestFiniteMagnitude
+
+            // Grow the cluster while events still overlap its running extent.
+            while index < slots.count,
+                  slots[index].dayIndex == day,
+                  cluster.isEmpty || slots[index].top < clusterEnd {
+                var slot = slots[index]
+                if let freeLane = laneEnds.firstIndex(where: { $0 <= slot.top }) {
+                    slot.lane = freeLane
+                    laneEnds[freeLane] = slot.top + slot.height
+                } else {
+                    slot.lane = laneEnds.count
+                    laneEnds.append(slot.top + slot.height)
+                }
+                clusterEnd = max(clusterEnd, slot.top + slot.height)
+                cluster.append(slot)
+                index += 1
+            }
+
+            for var slot in cluster {
+                slot.laneCount = laneEnds.count
+                laidOut.append(slot)
+            }
+        }
+
+        return laidOut.map { slot in
+            let laneWidth = (columnWidth - 8) / CGFloat(slot.laneCount)
             return PlacedEvent(
-                id: event.id,
-                event: event,
-                x: timeColumnWidth + CGFloat(dayIndex) * columnWidth + 4,
-                top: top + 2,
-                height: height,
-                width: columnWidth - 8
+                id: slot.event.id,
+                event: slot.event,
+                x: timeColumnWidth + CGFloat(slot.dayIndex) * columnWidth + 4 + CGFloat(slot.lane) * laneWidth,
+                top: slot.top + 2,
+                height: slot.height,
+                width: max(laneWidth - 2, 10)
             )
         }
     }
@@ -840,9 +924,24 @@ private struct MonthCell {
     let isCurrentMonth: Bool
 }
 
+/// Subtle rounded highlight while the pointer hovers — macOS pointer feedback
+/// for the plain-style header controls.
+private struct HoverHighlight: ViewModifier {
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                isHovered ? Theme.Palette.tagBg.opacity(0.7) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 6)
+            )
+            .onHover { isHovered = $0 }
+    }
+}
+
 #Preview {
     NavigationStack {
-        CalendarView()
+        CalendarView(googleClientID: "")
             .environment(AppSettings())
             .modelContainer(PersistenceController.makeInMemoryContainer())
     }
