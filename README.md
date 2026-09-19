@@ -1,5 +1,24 @@
 # Helm
 
+> [!WARNING]
+> **This project is no longer maintained and is archived.**
+>
+> Development moved to a ground-up rewrite in a separate, private repository.
+> The successor keeps the same idea — a personal CRM built around a Job Search
+> pipeline and Peregrine Design Werx business development — but shares no code
+> or git history with this one:
+>
+> | | This repo (`helm`) | Successor (`the-helm`, private) |
+> |---|---|---|
+> | Persistence | SwiftData | GRDB / SQLite |
+> | Platforms | macOS, iPadOS, iOS | macOS only |
+> | AI | Anthropic / OpenAI / OpenAI-compatible | Apple Intelligence (on-device) or Ollama |
+> | Integrations | Google Calendar, Granola | none (local-only) |
+>
+> Last commit here: **2026-07-18**. The code below still builds and runs as
+> described, but nothing further will be added and issues will not be
+> addressed. Everything that follows is kept for reference.
+
 A personal, customizable CRM for macOS, iPad and iPhone — built in SwiftUI +
 SwiftData. Track deals across pipelines (Job Search and Peregrine Prospects to
 start), manage contacts and meetings, pull in Google Calendar events and Granola
@@ -145,4 +164,3 @@ It's local-only by default so the project builds and runs with no provisioning.
   `Resources/Assets.xcassets/AppIcon.appiconset`.
 - Ideas to grow into: reminders/notifications for tasks, email logging, richer
   reporting, per-pipeline automations, and CSV import/export.
-```
